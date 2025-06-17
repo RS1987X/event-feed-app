@@ -58,45 +58,20 @@ def tokenize(text: str) -> set[str]:
         if tok.is_alpha and tok.text.lower() not in STOPWORDS
     }
 
-def detect_mentioned_company(
-    text: str,
-    companies: list[dict],
-    threshold: int = 90
-) -> tuple[str, str] | None:
-    """
-    Returns (company_name, matched_token) or None.
-    """
-    try:
-        text_tokens = tokenize(text)
+def sliding_ngrams(tokens, max_n=4):
+    for n in range(1, max_n + 1):
+        for i in range(len(tokens) - n + 1):
+            yield tokens[i:i+n]
 
-        for comp in companies:
-            name_tokens   = tokenize(comp["name"])
-            symbol_tokens = tokenize(comp["symbol"])
+def is_valid_fuzzy_match(candidate: str, score: int) -> bool:
+    # if candidate.lower() in GENERIC_TOKENS:
+    #     return False
+    if score < 90:
+        return False
+    if len(candidate.split()) < 2 and score < 95:
+        return False  # be stricter on short matches
+    return True
 
-            # 1) Exact token intersection
-            intersection = name_tokens & text_tokens
-            if not intersection:
-                intersection = symbol_tokens & text_tokens
-            if intersection:
-                return comp["name"], intersection.pop()
-
-            # 2) Fuzzy match on longer tokens
-            for nt in name_tokens:
-                if len(nt) < 4:
-                    continue
-                for tt in text_tokens:
-                    if len(tt) < 4:
-                        continue
-                    if fuzz.ratio(nt, tt) >= threshold:
-                        return comp["name"], tt
-
-        return None
-
-    except Exception as e:
-        logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")
-        return None
-    
-    
 def detect_mentioned_company_NER(
     text: str,
     companies: list[dict],
@@ -108,10 +83,11 @@ def detect_mentioned_company_NER(
     """
     try:
         # ——— 1) NER fuzzy matching ———
+        result_map = {}
         doc = nlp(text)
         candidates = {ent.text for ent in doc.ents if ent.label_ == "ORG"}
         best = None
-        best_score = threshold
+        #best_score = threshold
 
         for span in candidates:
             span_norm = normalize(span)
@@ -119,6 +95,8 @@ def detect_mentioned_company_NER(
                 continue
 
             for comp in companies:
+                if comp["name"] in result_map:
+                    continue
                 name_norm = normalize(comp["name"])
                 # pick metric
                 if len(span_norm) < 5:
@@ -126,41 +104,63 @@ def detect_mentioned_company_NER(
                 else:
                     score = fuzz.token_set_ratio(name_norm, span_norm)
 
-                if score > best_score:
-                    best, best_score = (comp["name"], span_norm), score
+                if score > threshold:
+                    result_map[comp["name"]] = span
+                    break
+                    #best, best_score = (comp["name"], span_norm), score
+        if len(result_map) < len(companies):
+            tokens = text.split()
+            for phrase_tokens in sliding_ngrams(tokens, max_n=4):
+                phrase = " ".join(phrase_tokens)
+                phrase_norm = normalize(phrase)
+                phrase_toks = set(phrase_norm.split())
 
-        if best:
-            return best
+                for comp in companies:
+
+                    if comp["name"] in result_map:
+                        continue     
+                    name_norm = normalize(comp["name"])
+                    name_toks = set(name_norm.split())
+
+                    if not name_toks:
+                        continue
+
+                    # skip if the entire phrase is “generic” (e.g. "global", "technology")
+                    if phrase_toks <= GENERIC_TOKENS:
+                        continue
+                    
+                    # 1) Enforce multi-token overlap ratio
+                    overlap = name_toks & phrase_toks
+                    
+                    # **new**: if all overlapping tokens are generic, skip
+                    if all(tok in GENERIC_TOKENS for tok in overlap):
+                        continue
+                    
+                    
+                    overlap_ratio = len(overlap) / len(name_toks)
+                    if overlap_ratio < 0.5:
+                        continue
+
+                    score = fuzz.token_set_ratio(phrase_norm, name_norm)
+                    if score > threshold and is_valid_fuzzy_match(phrase_norm, score):
+                        result_map[comp["name"]] = phrase
+                        break
+                        
+                        # best_match = (comp["name"], phrase)
+                        # best_score = score
 
 
-        #match = detect_mentioned_company_NER(text, companies)
-        #if not match:
-        match = fuzzy_fallback_match(text, companies)
+        # if best:
+        #     return best
+
+        # match = fuzzy_fallback_match(text, companies)
         
-        # # ——— 2) FALLBACK exact token intersection ———
-        # text_tokens = tokenize(text)
-        # for comp in companies:
-        #     name_tokens   = tokenize(comp["name"])
-        #     symbol_tokens = tokenize(comp["symbol"])
-
-        #     match_ratio = len(name_tokens & text_tokens) / max(1, len(name_tokens))
-        #     if match_ratio >= 0.5:
-        #         good_tokens = name_tokens & text_tokens
-        #     if good_tokens:
-        #         return comp["name"], good_tokens.pop()
-            # intersection = name_tokens & text_tokens
-            # if not intersection:
-            #     intersection = symbol_tokens & text_tokens
-            # if intersection:
-            #     return comp["name"], intersection.pop()
-
-        return match
+        return list(result_map.items())
 
     except Exception as e:
         logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")
         return None
     
-
     
 def fuzzy_fallback_match(text: str, companies: list[dict], threshold: int = 90) -> tuple[str, str] | None:
     """
@@ -175,11 +175,6 @@ def fuzzy_fallback_match(text: str, companies: list[dict], threshold: int = 90) 
         phrase = " ".join(phrase_tokens)
         phrase_norm = normalize(phrase)
         phrase_toks = set(phrase_norm.split())
-
-        # GENERIC_TOKENS = load_generic_nouns()  # Load generic nouns once
-        # # Skip overly generic phrases
-        # if not phrase_toks or phrase_toks <= GENERIC_TOKENS:
-        #     continue
 
         for comp in companies:
 
@@ -213,33 +208,44 @@ def fuzzy_fallback_match(text: str, companies: list[dict], threshold: int = 90) 
 
     return best_match
     
-def sliding_ngrams(tokens, max_n=4):
-    for n in range(1, max_n + 1):
-        for i in range(len(tokens) - n + 1):
-            yield tokens[i:i+n]
 
-def is_valid_fuzzy_match(candidate: str, score: int) -> bool:
-    # if candidate.lower() in GENERIC_TOKENS:
-    #     return False
-    if score < 90:
-        return False
-    if len(candidate.split()) < 2 and score < 95:
-        return False  # be stricter on short matches
-    return True
+# def detect_mentioned_company(
+#     text: str,
+#     companies: list[dict],
+#     threshold: int = 90
+# ) -> tuple[str, str] | None:
+#     """
+#     Returns (company_name, matched_token) or None.
+#     """
+#     try:
+#         text_tokens = tokenize(text)
 
-# from nltk.corpus import brown
-# from collections import Counter
-# import nltk
-# nltk.download('brown'); nltk.download('universal_tagset')
+#         for comp in companies:
+#             name_tokens   = tokenize(comp["name"])
+#             symbol_tokens = tokenize(comp["symbol"])
 
+#             # 1) Exact token intersection
+#             intersection = name_tokens & text_tokens
+#             if not intersection:
+#                 intersection = symbol_tokens & text_tokens
+#             if intersection:
+#                 return comp["name"], intersection.pop()
 
-# def load_generic_nouns():
-#     words = brown.words()
-#     tags  = brown.tagged_words(tagset='universal')
-#     nouns = [w.lower() for w,t in tags if t=='NOUN']
-#     freq  = Counter(nouns)
-#     generic_nouns = {w for w,c in freq.most_common(200)}  # top 200 nouns
-#     return generic_nouns
+#             # 2) Fuzzy match on longer tokens
+#             for nt in name_tokens:
+#                 if len(nt) < 4:
+#                     continue
+#                 for tt in text_tokens:
+#                     if len(tt) < 4:
+#                         continue
+#                     if fuzz.ratio(nt, tt) >= threshold:
+#                         return comp["name"], tt
+
+#         return None
+
+#     except Exception as e:
+#         logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")
+#         return None
 
 if __name__ == "__main__":
     
@@ -247,7 +253,7 @@ if __name__ == "__main__":
     sample_text_1 = "The company ABB is in a leading position."
 
     sample_text_2 = "Apple Inc. is expanding its AI division in Sweden.Technology companies like are also making strides in AI."
-    sample_text_3 = "Absolent Air care vinstvarnar"
+    sample_text_3 = "Absolent Air care vinstvarnar. ABB stiger på rapport. Addvise rapporterar starka resultat."
     sample_text_4 = "Addvise rapporterar"
     sample_text_5 = "a global content and technology company"
     companies = [
@@ -260,5 +266,5 @@ if __name__ == "__main__":
         {"name" : "ADDvise Group AB", "symbol" : "ADDV A"},
     ]
 
-    result = detect_mentioned_company_NER(sample_text_4, companies)
+    result = detect_mentioned_company_NER(sample_text_5, companies)
     print("NER result:", result)

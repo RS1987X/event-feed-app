@@ -55,11 +55,11 @@ def fetch_rss_events(
 
             # 3) Company‐mention detection
             full_text = f"{title} {summary}"
-            match = detect_mentioned_company_NER(full_text, COMPANY_NAMES)
-            if not match:
+            matches = detect_mentioned_company_NER(full_text, COMPANY_NAMES)
+            if not matches:
                 continue
 
-            company, token = match
+            #company, token = match
 
             # 4) Build the Event
             events.append(Event(
@@ -68,11 +68,24 @@ def fetch_rss_events(
                 timestamp=timestamp,
                 content=summary,
                 metadata={
-                    "link": entry.get("link", ""),
-                    "matched_company": company,
-                    "matched_token": token
+                    "link":  entry.get("link", ""),
+                    "matches": matches     # list of (company, token)
                 }
             ))
+
+
+            # for company, token in matches:
+            #     events.append(Event(
+            #         source=source_name,
+            #         title=title,
+            #         timestamp=timestamp,
+            #         content=summary,
+            #         metadata={
+            #             "link": entry.get("link", ""),
+            #             "matched_company": company,
+            #             "matched_token": token
+            #         }
+            #     ))
 
         except Exception as e:
             logger.warning(
