@@ -164,11 +164,11 @@ NOUN_RANK = build_noun_rank_map(batch_size=500, n_process=2)
 def compute_noun_rank(word: str) -> int | None:
     return NOUN_RANK.get(word.lower())
 
-# # Example usage:
-# for w in ["systems", "holdings", "technologies", "partners", "ventures","financial"]:
-#     print(f"{w!r} is rank #{compute_noun_rank(w)}")
+# Example usage:
+for w in ["systems", "holdings", "technologies", "partners", "ventures","financial"]:
+    print(f"{w!r} is rank #{compute_noun_rank(w)}")
 
-# print("Systems is #", compute_noun_rank("systems"))
+print("Momentum is #", compute_noun_rank("momentum"))
 # print("Holdings is #", compute_noun_rank("holdings"))
 # print("Technologies is #", compute_noun_rank("technologies"))
 # print("Technologies is #", compute_noun_rank("partners"))

@@ -31,7 +31,7 @@ GENERIC_ADJ = {"global", "international", "national", "regional", "local",
 GENERIC_NOUNS_SWE = {"grupp", "holding", "industri", "industrikoncern", "tjänster", "system", "lösningar", 
 "teknik", "energi", "utveckling", "konsult", "kommunikation", "investeringar", 
 "fastigheter", "förvaltning", "logistik", "transport", "media", "produktion", 
-"service", "design", "innovation", "management", "kapital", "finans", "resurser", "utbildning"}
+"service", "design", "innovation", "management", "kapital", "finans", "resurser", "utbildning", "momentum"}
 
 GENERIC_TOKENS = LOADED_GENERIC | GENERIC_NOUNS | GENERIC_ADJ | GENERIC_NOUNS_SWE
 
