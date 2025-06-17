@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QTextEdit
+from PyQt6.QtCore import pyqtSlot
 import sys
 
 class EventFeedGUI(QWidget):
@@ -12,6 +13,7 @@ class EventFeedGUI(QWidget):
         self.layout.addWidget(self.text_log)
         self.setLayout(self.layout)
 
+    @pyqtSlot(object)
     def add_event(self, event):
         if "matched_company" in event.metadata:
             company = event.metadata["matched_company"]

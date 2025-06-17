@@ -5,8 +5,18 @@ from datetime import datetime
 from threading import Thread
 import time
 import logging
+from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
+
+def safe_add_event(window, event):
+    QMetaObject.invokeMethod(
+        window,
+        "add_event",
+        Qt.ConnectionType.QueuedConnection,
+        Q_ARG(object, event)
+    )
 
 def poll_gmail(window):
     last_event_time = time.time()
@@ -19,7 +29,8 @@ def poll_gmail(window):
 
             if emails:
                 for e in emails:
-                    window.add_event(e)
+                    safe_add_event(window, e)  # Use safe_add_event to ensure thread safety
+                    #window.add_event(e)
                 last_event_time = time.time()
             else:
                 if time.time() - last_event_time > HEARTBEAT_INTERVAL:
@@ -30,7 +41,8 @@ def poll_gmail(window):
                         content="Polling continues... no new messages found.",
                         metadata={}
                     )
-                    window.add_event(heartbeat)
+                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+                    #window.add_event(heartbeat)
                     last_event_time = time.time()  # reset to avoid repeated heartbeat
 
         except Exception as e:
@@ -41,7 +53,8 @@ def poll_gmail(window):
                 content=str(e),
                 metadata={}
             )
-            window.add_event(error_event)
+            safe_add_event(window, error_event)  # Use safe_add_event to ensure thread safety
+            #window.add_event(error_event)
 
         time.sleep(POLL_INTERVAL)
 
@@ -62,7 +75,8 @@ def poll_rss(window):
             for event in headlines:
                 link = event.metadata.get("link")
                 if link not in seen_links:
-                    window.add_event(event)
+                    safe_add_event(window, event)  # Use safe_add_event to ensure thread safety
+                    #window.add_event(event)
                     seen_links.add(link)
                     new_events += 1
 
@@ -77,7 +91,8 @@ def poll_rss(window):
                         content="Still polling DI.se — no new articles detected.",
                         metadata={}
                     )
-                    window.add_event(heartbeat)
+                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+                    # window.add_event(heartbeat)
                     last_event_time = time.time()
 
         except Exception as e:
@@ -88,7 +103,8 @@ def poll_rss(window):
                 content=str(e),
                 metadata={}
             )
-            window.add_event(error_event)
+            safe_add_event(window, error_event)  # Use safe_add_event to ensure thread safety
+            #window.add_event(error_event)
 
         time.sleep(POLL_INTERVAL)
 
@@ -109,7 +125,8 @@ def poll_thomson_rss(window):
             for event in headlines:
                 link = event.metadata.get("link")
                 if link and link not in seen_links:
-                    window.add_event(event)
+                    safe_add_event(window, event)  # Use safe_add_event to ensure thread safety
+                    #window.add_event(event)
                     seen_links.add(link)
                     new_events += 1
 
@@ -124,7 +141,8 @@ def poll_thomson_rss(window):
                         content="Still polling Thomson Reuters — no new press releases.",
                         metadata={}
                     )
-                    window.add_event(heartbeat)
+                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+                    #window.add_event(heartbeat)
                     last_event_time = time.time()
 
         except Exception as e:
@@ -135,8 +153,9 @@ def poll_thomson_rss(window):
                 content=str(e),
                 metadata={}
             )
-            window.add_event(error_event)
-
+            safe_add_event(window, error_event)  # Use safe_add_event to ensure thread safety
+            #window.add_event(error_event)
+        
         time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
@@ -144,7 +163,7 @@ if __name__ == "__main__":
     #test_fetch_any_email(max_results=3)
      
     app, window = run_gui()
-
+    print("GUI created")  # Debug print
     # Example fake event
     fake_event = Event(
         source="System",
@@ -153,7 +172,7 @@ if __name__ == "__main__":
         content="GUI initialized and ready to receive events.",
         metadata={}
     )
-    window.add_event(fake_event)
+    safe_add_event(window, fake_event)
 
     # Start background Gmail polling
     gmail_thread = Thread(target=poll_gmail, args=(window,), daemon=True)
@@ -168,5 +187,5 @@ if __name__ == "__main__":
     di_rss_thread.start()
     thomson_rss_thread.start()
 
-
+    print("Starting event loop")
     app.exec()

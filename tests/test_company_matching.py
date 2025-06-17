@@ -25,8 +25,10 @@ def test_detection():
         ("ABB stiger på rapport", True),
         #("Fastighetsbolag från Malmö ökar", False),
         ("Det här bolaget är en fasad", False),
-        ("Air care vinstvarnar", True),
-        ("Addvise rapporterar", True)
+        ("Absolent Air Care vinstvarnar", True),
+        ("Addvise rapporterar", True),
+        ("a global content and technology company", False),
+
         
     ]
 

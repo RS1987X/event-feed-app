@@ -8,3 +8,4 @@ class Event:
     timestamp: datetime
     content: str
     metadata: dict
+
