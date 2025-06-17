@@ -70,41 +70,48 @@ def detect_mentioned_company_NER(
     threshold: int = 90
 ) -> tuple[str, str] | None:
     """
-    1) Extract spaCy ORG entities from the text.
-    2) Fuzzy‐match each entity span against company["name"].
-       - For spans shorter than 5 chars, use fuzz.ratio (strict).
-       - For longer spans, use fuzz.token_set_ratio (more forgiving).
-    3) Return the best hit (company_name, matched_span) above `threshold`.
+    1) NER‐based fuzzy match
+    2) FALLBACK: exact token intersection on name or symbol
     """
     try:
+        # ——— 1) NER fuzzy matching ———
         doc = nlp(text)
-        # 1) Only ORG‐labeled entities
         candidates = {ent.text for ent in doc.ents if ent.label_ == "ORG"}
-
         best = None
         best_score = threshold
 
         for span in candidates:
             span_norm = normalize(span)
-
-            # Skip absurdly short spans
             if len(span_norm) < 2:
                 continue
 
             for comp in companies:
                 name_norm = normalize(comp["name"])
-
-                # Choose metric based on span length
+                # pick metric
                 if len(span_norm) < 5:
                     score = fuzz.ratio(name_norm, span_norm)
                 else:
                     score = fuzz.token_set_ratio(name_norm, span_norm)
 
                 if score > best_score:
-                    best = (comp["name"], span_norm)
-                    best_score = score
+                    best, best_score = (comp["name"], span_norm), score
 
-        return best
+        if best:
+            return best
+
+        # ——— 2) FALLBACK exact token intersection ———
+        text_tokens = tokenize(text)
+        for comp in companies:
+            name_tokens   = tokenize(comp["name"])
+            symbol_tokens = tokenize(comp["symbol"])
+
+            intersection = name_tokens & text_tokens
+            if not intersection:
+                intersection = symbol_tokens & text_tokens
+            if intersection:
+                return comp["name"], intersection.pop()
+
+        return None
 
     except Exception as e:
         logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")
