@@ -10,6 +10,7 @@ nlp = spacy.load("xx_ent_wiki_sm")
 
 # 2) Combined stop-words for English + Swedish
 STOPWORDS = EN_STOPWORDS | SV_STOPWORDS
+
 def normalize(text: str) -> str:
     text = text.lower()
     text = re.sub(r"\bab\b", "", text)
@@ -35,8 +36,8 @@ def detect_mentioned_company(
         text_tokens = tokenize(text)
 
         for comp in companies:
-            name_tokens   = tokenize(comp["name_tokens"])
-            symbol_tokens = tokenize(comp["symbol_tokens"])
+            name_tokens   = tokenize(comp["name"])
+            symbol_tokens = tokenize(comp["symbol"])
 
             # 1) Exact token intersection
             intersection = name_tokens & text_tokens
@@ -56,6 +57,54 @@ def detect_mentioned_company(
                         return comp["name"], tt
 
         return None
+
+    except Exception as e:
+        logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")
+        return None
+    
+
+    
+def detect_mentioned_company_NER(
+    text: str,
+    companies: list[dict],
+    threshold: int = 90
+) -> tuple[str, str] | None:
+    """
+    1) Extract spaCy ORG entities from the text.
+    2) Fuzzy‐match each entity span against company["name"].
+       - For spans shorter than 5 chars, use fuzz.ratio (strict).
+       - For longer spans, use fuzz.token_set_ratio (more forgiving).
+    3) Return the best hit (company_name, matched_span) above `threshold`.
+    """
+    try:
+        doc = nlp(text)
+        # 1) Only ORG‐labeled entities
+        candidates = {ent.text for ent in doc.ents if ent.label_ == "ORG"}
+
+        best = None
+        best_score = threshold
+
+        for span in candidates:
+            span_norm = normalize(span)
+
+            # Skip absurdly short spans
+            if len(span_norm) < 2:
+                continue
+
+            for comp in companies:
+                name_norm = normalize(comp["name"])
+
+                # Choose metric based on span length
+                if len(span_norm) < 5:
+                    score = fuzz.ratio(name_norm, span_norm)
+                else:
+                    score = fuzz.token_set_ratio(name_norm, span_norm)
+
+                if score > best_score:
+                    best = (comp["name"], span_norm)
+                    best_score = score
+
+        return best
 
     except Exception as e:
         logger.warning(f"Company match error: {e} — text snippet: {text[:60]!r}")

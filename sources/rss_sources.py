@@ -4,7 +4,7 @@ import feedparser
 from datetime import datetime
 from core.event_types import Event
 from core.company_loader import load_company_names
-from core.company_matcher import detect_mentioned_company
+from core.company_matcher import detect_mentioned_company_NER
 import logging
 from dateutil import parser as dateparser  # more robust than strptime
 
@@ -55,7 +55,7 @@ def fetch_rss_events(
 
             # 3) Company‐mention detection
             full_text = f"{title} {summary}"
-            match = detect_mentioned_company(full_text, COMPANY_NAMES)
+            match = detect_mentioned_company_NER(full_text, COMPANY_NAMES)
             if not match:
                 continue
 
