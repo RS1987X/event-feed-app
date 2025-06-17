@@ -13,6 +13,10 @@ class EventFeedGUI(QWidget):
         self.setLayout(self.layout)
 
     def add_event(self, event):
+        if "matched_company" in event.metadata:
+            company = event.metadata["matched_company"]
+            token = event.metadata.get("matched_token", "")
+            event.content += f"\n\n🔎 Matched company: {company} (via token: '{token}')"
         self.text_log.append(f"[{event.timestamp}] {event.source}: {event.title}\n{event.content}\n")
 
 def run_gui():

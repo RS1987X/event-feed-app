@@ -4,8 +4,10 @@ from sources.gmail_fetcher import fetch_unread_emails, test_fetch_any_email
 from datetime import datetime
 from threading import Thread
 import time
+import logging
 
-POLL_INTERVAL = 60  # seconds
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
 def poll_gmail(window):
     last_event_time = time.time()
     POLL_INTERVAL = 60  # seconds
@@ -91,6 +93,52 @@ def poll_rss(window):
         time.sleep(POLL_INTERVAL)
 
 
+from sources.rss_sources import fetch_thomson_rss
+
+def poll_thomson_rss(window):
+    POLL_INTERVAL = 120             # every 2 minutes
+    HEARTBEAT_INTERVAL = 300        # 5 minutes
+    seen_links = set()
+    last_event_time = time.time()
+
+    while True:
+        try:
+            headlines = fetch_thomson_rss()
+            new_events = 0
+
+            for event in headlines:
+                link = event.metadata.get("link")
+                if link and link not in seen_links:
+                    window.add_event(event)
+                    seen_links.add(link)
+                    new_events += 1
+
+            if new_events > 0:
+                last_event_time = time.time()
+            else:
+                if time.time() - last_event_time >= HEARTBEAT_INTERVAL:
+                    heartbeat = Event(
+                        source="Thomson Reuters RSS",
+                        title="No new RSS items",
+                        timestamp=datetime.now(),
+                        content="Still polling Thomson Reuters — no new press releases.",
+                        metadata={}
+                    )
+                    window.add_event(heartbeat)
+                    last_event_time = time.time()
+
+        except Exception as e:
+            error_event = Event(
+                source="Thomson Reuters RSS",
+                title="RSS fetch error",
+                timestamp=datetime.now(),
+                content=str(e),
+                metadata={}
+            )
+            window.add_event(error_event)
+
+        time.sleep(POLL_INTERVAL)
+
 if __name__ == "__main__":
     
     #test_fetch_any_email(max_results=3)
@@ -112,9 +160,13 @@ if __name__ == "__main__":
     
     # Start background RSS polling
     di_rss_thread = Thread(target=poll_rss, args=(window,), daemon=True)
-    
+
+     # Start background RSS polling
+    thomson_rss_thread = Thread(target=poll_thomson_rss, args=(window,), daemon=True)
+
     gmail_thread.start()
     di_rss_thread.start()
+    thomson_rss_thread.start()
 
 
     app.exec()
