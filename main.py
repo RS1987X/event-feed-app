@@ -43,6 +43,54 @@ def poll_gmail(window):
 
         time.sleep(POLL_INTERVAL)
 
+
+from sources.rss_sources import fetch_latest_di_headlines
+
+def poll_rss(window):
+    POLL_INTERVAL = 120  # check every 2 minutes
+    HEARTBEAT_INTERVAL = 300  # 5 minutes
+    seen_links = set()
+    last_event_time = time.time()
+
+    while True:
+        try:
+            headlines = fetch_latest_di_headlines(limit=5)
+            new_events = 0
+
+            for event in headlines:
+                link = event.metadata.get("link")
+                if link not in seen_links:
+                    window.add_event(event)
+                    seen_links.add(link)
+                    new_events += 1
+
+            if new_events > 0:
+                last_event_time = time.time()
+            else:
+                if time.time() - last_event_time > HEARTBEAT_INTERVAL:
+                    heartbeat = Event(
+                        source="DI.se RSS",
+                        title="No new RSS items",
+                        timestamp=datetime.now(),
+                        content="Still polling DI.se — no new articles detected.",
+                        metadata={}
+                    )
+                    window.add_event(heartbeat)
+                    last_event_time = time.time()
+
+        except Exception as e:
+            error_event = Event(
+                source="DI.se RSS",
+                title="RSS fetch error",
+                timestamp=datetime.now(),
+                content=str(e),
+                metadata={}
+            )
+            window.add_event(error_event)
+
+        time.sleep(POLL_INTERVAL)
+
+
 if __name__ == "__main__":
     
     #test_fetch_any_email(max_results=3)
@@ -60,7 +108,13 @@ if __name__ == "__main__":
     window.add_event(fake_event)
 
     # Start background Gmail polling
-    thread = Thread(target=poll_gmail, args=(window,), daemon=True)
-    thread.start()
+    gmail_thread = Thread(target=poll_gmail, args=(window,), daemon=True)
+    
+    # Start background RSS polling
+    di_rss_thread = Thread(target=poll_rss, args=(window,), daemon=True)
+    
+    gmail_thread.start()
+    di_rss_thread.start()
+
 
     app.exec()
