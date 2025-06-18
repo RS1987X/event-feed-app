@@ -15,7 +15,7 @@ COMPANY_NAMES = load_company_names()
 
 DI_FEED_URL = "https://www.di.se/rss"
 
-def fetch_latest_di_headlines(limit=5):
+def fetch_latest_di_headlines(limit=10):
     return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit)
 
 THOMSON_FEED = "https://ir.thomsonreuters.com/rss/news-releases.xml?items=15"
@@ -52,24 +52,34 @@ def fetch_rss_events(
                 timestamp = dateparser.parse(entry.published)
             else:
                 timestamp = datetime.now()
-
+            fetched_at = datetime.now()
             # 3) Company‐mention detection
             full_text = f"{title} {summary}"
             matches = detect_mentioned_company_NER(full_text, COMPANY_NAMES)
             if not matches:
                 continue
-
+            
             #company, token = match
-
+            # Only take first match for simplicity
+            company_names = [name for name, _ in matches]
+            #tickers = [c["ticker"] for c in COMPANY_NAMES if c["name"] in company_names]
+            tickers = [
+                c.get("ticker", "")
+                for c in COMPANY_NAMES
+                if c.get("name") in company_names and c.get("ticker", "")
+            ]
             # 4) Build the Event
             events.append(Event(
                 source=source_name,
                 title=title,
                 timestamp=timestamp,
+                fetched_at=fetched_at,
                 content=summary,
                 metadata={
                     "link":  entry.get("link", ""),
-                    "matches": matches     # list of (company, token)
+                    "company": ", ".join(company_names),
+                    "ticker": ", ".join(tickers),
+                    "matches": matches  # keep full list if needed later
                 }
             ))
 

@@ -6,19 +6,21 @@ from datetime import datetime
 import base64
 import os
 import re
+from core.company_loader import load_company_names
+from core.company_matcher import detect_mentioned_company_NER
 
-def fetch_unread_emails(max_results=10):
+def fetch_recent_emails(max_results=10):
     service = get_gmail_service()
     results = service.users().messages().list(
         userId='me',
         labelIds=['INBOX'],
-        q='is:unread',
+        #q='is:unread',
         maxResults=max_results
     ).execute()
 
     messages = results.get('messages', [])
     events = []
-
+    companies = load_company_names()
     for msg in messages:
         full_msg = service.users().messages().get(userId='me', id=msg['id']).execute()
         payload = full_msg.get('payload', {})
@@ -30,13 +32,36 @@ def fetch_unread_emails(max_results=10):
         dt = datetime.fromtimestamp(timestamp)
 
         body = _extract_email_body(payload)
+        
+        full_text = f"{subject}\n\n{body}"
+
+        company_matches = detect_mentioned_company_NER(sender, companies)
+        company = company_matches[0][0] if company_matches else None
+        #ticker = next((c["ticker"] for c in companies if c["name"] == company), None)
+        if company:
+             # Safely grab the first non-empty ticker (empty string if none)
+            ticker = next(
+                (
+                    c.get("ticker", "")
+                    for c in companies
+                    if c.get("name") == company and c.get("ticker")
+                ),
+                ""
+            )
+        else:
+            ticker = ""
 
         event = Event(
             source="Gmail",
             title=subject,
             timestamp=dt,
+            fetched_at=dt,
             content=f"From: {sender}\n\n{body}",
-            metadata={"id": msg['id']}
+            metadata={"id": msg['id'],
+                "sender": sender,
+                "company": company,
+                "ticker": ticker
+                }
         )
         events.append(event)
 

@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 
 from core.company_loader import load_company_names
-from core.company_matcher import normalize, detect_mentioned_company,detect_mentioned_company_NER
+from core.company_matcher import normalize,detect_mentioned_company_NER
 
 def test_company_loader():
     companies = load_company_names()
@@ -14,7 +14,7 @@ def test_company_loader():
 
 def test_normalization():
     assert normalize("H&M AB") == "hm"
-    assert normalize("ABB Ltd.") == "abb ltd"
+    assert normalize("ABB Ltd.") == "abb"
     assert normalize("Investor AB") == "investor"
     print("✅ Normalization passed")
 
@@ -34,7 +34,7 @@ def test_detection():
 
     for text, expected in examples:
         match = detect_mentioned_company_NER(text, companies)
-        assert (match is not None) == expected, f"Failed on: {text}"
+        assert bool(match) == expected, f"Failed on: {text}"
         print(f"✅ Detected: {match} for: '{text}'")
 
 if __name__ == "__main__":

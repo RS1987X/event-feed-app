@@ -6,6 +6,7 @@ class Event:
     source: str
     title: str
     timestamp: datetime
+    fetched_at: datetime
     content: str
     metadata: dict
 

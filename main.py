@@ -1,11 +1,12 @@
 from gui.app import run_gui
 from core.event_types import Event
-from sources.gmail_fetcher import fetch_unread_emails, test_fetch_any_email
+from sources.gmail_fetcher import fetch_recent_emails, test_fetch_any_email
 from datetime import datetime
 from threading import Thread
 import time
 import logging
 from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+from core.oltp_store import insert_if_new, init_db
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
@@ -25,22 +26,24 @@ def poll_gmail(window):
 
     while True:
         try:
-            emails = fetch_unread_emails(max_results=5)
+            emails = fetch_recent_emails(max_results=5)
 
             if emails:
                 for e in emails:
-                    safe_add_event(window, e)  # Use safe_add_event to ensure thread safety
+                    if insert_if_new(e):
+                        safe_add_event(window, e)  # Use safe_add_event to ensure thread safety
                     #window.add_event(e)
                 last_event_time = time.time()
             else:
                 if time.time() - last_event_time > HEARTBEAT_INTERVAL:
                     heartbeat = Event(
-                        source="System",
-                        title="No new Gmail events",
-                        timestamp=datetime.now(),
-                        content="Polling continues... no new messages found.",
-                        metadata={}
-                    )
+                            source="System",
+                            title="No new Gmail events",
+                            timestamp=datetime.now(),
+                            fetched_at=datetime.now(),
+                            content="…",
+                            metadata={}
+                        )
                     safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
                     #window.add_event(heartbeat)
                     last_event_time = time.time()  # reset to avoid repeated heartbeat
@@ -50,6 +53,7 @@ def poll_gmail(window):
                 source="Gmail",
                 title="Fetch error",
                 timestamp=datetime.now(),
+                fetched_at=datetime.now(),
                 content=str(e),
                 metadata={}
             )
@@ -69,37 +73,42 @@ def poll_rss(window):
 
     while True:
         try:
-            headlines = fetch_latest_di_headlines(limit=5)
+            headlines = fetch_latest_di_headlines(limit=10)
             new_events = 0
 
             for event in headlines:
-                link = event.metadata.get("link")
-                if link not in seen_links:
-                    safe_add_event(window, event)  # Use safe_add_event to ensure thread safety
-                    #window.add_event(event)
-                    seen_links.add(link)
+                if insert_if_new(event):
+                    safe_add_event(window, event)
                     new_events += 1
+                # link = event.metadata.get("link")
+                # if link not in seen_links:
+                #     safe_add_event(window, event)  # Use safe_add_event to ensure thread safety
+                #     #window.add_event(event)
+                #     seen_links.add(link)
+                #     new_events += 1
 
             if new_events > 0:
                 last_event_time = time.time()
-            else:
-                if time.time() - last_event_time > HEARTBEAT_INTERVAL:
-                    heartbeat = Event(
-                        source="DI.se RSS",
-                        title="No new RSS items",
-                        timestamp=datetime.now(),
-                        content="Still polling DI.se — no new articles detected.",
-                        metadata={}
-                    )
-                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+            elif time.time() - last_event_time > HEARTBEAT_INTERVAL:
+                
+                heartbeat = Event(
+                    source="DI.se RSS",
+                    title="No new RSS items",
+                    timestamp=datetime.now(),
+                    fetched_at=datetime.now(),  # ← add this line
+                    content="Still polling DI.se — no new articles detected.",
+                    metadata={}
+                )
+                safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
                     # window.add_event(heartbeat)
-                    last_event_time = time.time()
+                last_event_time = time.time()
 
         except Exception as e:
             error_event = Event(
                 source="DI.se RSS",
                 title="RSS fetch error",
                 timestamp=datetime.now(),
+                fetched_at=datetime.now(),
                 content=str(e),
                 metadata={}
             )
@@ -123,33 +132,31 @@ def poll_thomson_rss(window):
             new_events = 0
 
             for event in headlines:
-                link = event.metadata.get("link")
-                if link and link not in seen_links:
-                    safe_add_event(window, event)  # Use safe_add_event to ensure thread safety
-                    #window.add_event(event)
-                    seen_links.add(link)
+                if insert_if_new(event):
+                    safe_add_event(window, event)
                     new_events += 1
 
             if new_events > 0:
                 last_event_time = time.time()
-            else:
-                if time.time() - last_event_time >= HEARTBEAT_INTERVAL:
-                    heartbeat = Event(
-                        source="Thomson Reuters RSS",
-                        title="No new RSS items",
-                        timestamp=datetime.now(),
-                        content="Still polling Thomson Reuters — no new press releases.",
-                        metadata={}
-                    )
-                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
-                    #window.add_event(heartbeat)
-                    last_event_time = time.time()
+            elif time.time() - last_event_time >= HEARTBEAT_INTERVAL:
+                heartbeat = Event(
+                    source="Thomson Reuters RSS",
+                    title="No new RSS items",
+                    timestamp=datetime.now(),
+                    fetched_at=datetime.now(),  # ← add this line
+                    content="Still polling Thomson Reuters — no new press releases.",
+                    metadata={}
+                )
+                safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+                #window.add_event(heartbeat)
+                last_event_time = time.time()
 
         except Exception as e:
             error_event = Event(
                 source="Thomson Reuters RSS",
                 title="RSS fetch error",
                 timestamp=datetime.now(),
+                fetched_at=datetime.now(),
                 content=str(e),
                 metadata={}
             )
@@ -159,7 +166,8 @@ def poll_thomson_rss(window):
         time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
-    
+    # ensure our events table exists
+    init_db()
     #test_fetch_any_email(max_results=3)
      
     app, window = run_gui()
@@ -169,6 +177,7 @@ if __name__ == "__main__":
         source="System",
         title="Startup Complete",
         timestamp=datetime.now(),
+        fetched_at=datetime.now(),  # ← add this line
         content="GUI initialized and ready to receive events.",
         metadata={}
     )
@@ -176,7 +185,7 @@ if __name__ == "__main__":
 
     # Start background Gmail polling
     gmail_thread = Thread(target=poll_gmail, args=(window,), daemon=True)
-    
+
     # Start background RSS polling
     di_rss_thread = Thread(target=poll_rss, args=(window,), daemon=True)
 

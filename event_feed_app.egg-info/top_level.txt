@@ -1,0 +1,6 @@
+auth
+core
+gui
+main
+sources
+tests
