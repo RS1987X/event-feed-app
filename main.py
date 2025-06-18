@@ -26,27 +26,28 @@ def poll_gmail(window):
 
     while True:
         try:
-            emails = fetch_recent_emails(max_results=5)
-
-            if emails:
-                for e in emails:
-                    if insert_if_new(e):
-                        safe_add_event(window, e)  # Use safe_add_event to ensure thread safety
-                    #window.add_event(e)
+            emails = fetch_recent_emails(max_results=10)
+            new_events = 0
+            
+            for e in emails:
+                if insert_if_new(e):
+                    safe_add_event(window, e)  # Use safe_add_event to ensure thread safety
+                    new_events += 1
+                #window.add_event(e)
+            #last_event_time = time.time()
+            if new_events > 0:
                 last_event_time = time.time()
-            else:
-                if time.time() - last_event_time > HEARTBEAT_INTERVAL:
-                    heartbeat = Event(
-                            source="System",
-                            title="No new Gmail events",
-                            timestamp=datetime.now(),
-                            fetched_at=datetime.now(),
-                            content="…",
-                            metadata={}
-                        )
-                    safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
-                    #window.add_event(heartbeat)
-                    last_event_time = time.time()  # reset to avoid repeated heartbeat
+            elif time.time() - last_event_time > HEARTBEAT_INTERVAL:
+                heartbeat = Event(
+                        source="System",
+                        title="No new Gmail events",
+                        timestamp=datetime.now(),
+                        fetched_at=datetime.now(),
+                        content="…",
+                        metadata={}
+                    )
+                safe_add_event(window, heartbeat)  # Use safe_add_event to ensure thread safety
+                last_event_time = time.time()  # reset to avoid repeated heartbeat
 
         except Exception as e:
             error_event = Event(

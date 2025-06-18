@@ -16,11 +16,17 @@ def main():
     print("Schema for events:")
     print(cur.fetchone()[0])
 
-    # Show first 10 rows
-    cur.execute("SELECT * FROM events LIMIT 10;")
-    rows = cur.fetchall()
-    print(f"\nFirst {len(rows)} rows:")
-    pprint(rows)
+    # # Show first 10 rows
+    # cur.execute("SELECT * FROM events LIMIT 10;")
+    # rows = cur.fetchall()
+    # print(f"\nFirst {len(rows)} rows:")
+    # pprint(rows)
+
+    # Show last 3 rows (most recently inserted)
+    cur.execute("SELECT * FROM events ORDER BY fetched_at DESC LIMIT 3;")
+    last_rows = cur.fetchall()
+    print(f"\nLast {len(last_rows)} rows:")
+    pprint(last_rows)
 
 if __name__ == "__main__":
     main()

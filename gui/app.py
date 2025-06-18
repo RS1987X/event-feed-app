@@ -36,7 +36,7 @@ class EventFeedGUI(QWidget):
 
         # 3) Finally append to the log
         self.text_log.append(
-            f"[{event.timestamp}] {event.source}: {event.title}\n{event.content}\n"
+            f"[{event.fetched_at}] {event.source}: {event.title}\n{event.content}\n"
         )
 def run_gui():
     app = QApplication(sys.argv)

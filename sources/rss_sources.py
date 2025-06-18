@@ -1,12 +1,15 @@
 # sources/web_scraper.py
 
 import feedparser
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+STOCKHOLM = ZoneInfo("Europe/Stockholm")
 from core.event_types import Event
 from core.company_loader import load_company_names
 from core.company_matcher import detect_mentioned_company_NER
 import logging
 from dateutil import parser as dateparser  # more robust than strptime
+import calendar
 
 logger = logging.getLogger(__name__)
 
@@ -16,18 +19,19 @@ COMPANY_NAMES = load_company_names()
 DI_FEED_URL = "https://www.di.se/rss"
 
 def fetch_latest_di_headlines(limit=10):
-    return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit)
+    return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit, local_tz= STOCKHOLM)
 
 THOMSON_FEED = "https://ir.thomsonreuters.com/rss/news-releases.xml?items=15"
 
 def fetch_thomson_rss(limit=10):
-    return fetch_rss_events(THOMSON_FEED, "Thomson Reuters IR",limit)
+    return fetch_rss_events(THOMSON_FEED, "Thomson Reuters IR",limit,local_tz=None)
 
 
 def fetch_rss_events(
     feed_url: str,
     source_name: str,
-    limit: int | None = None
+    limit: int | None = None,
+    local_tz: ZoneInfo | None = None
 ) -> list[Event]:
     """
     Generic RSS → Event fetcher with company‐mention filtering.
@@ -45,13 +49,29 @@ def fetch_rss_events(
             title   = entry.get("title", "").strip()
             summary = getattr(entry, "summary", "").strip()
 
-            # 2) Parse a timestamp
+            # parse as UTC first
             if entry.get("published_parsed"):
-                timestamp = datetime(*entry.published_parsed[:6])
+                # published_parsed is a time.struct_time in UTC (no tzinfo)
+                utc_dt = datetime.fromtimestamp(
+                    calendar.timegm(entry.published_parsed),
+                    tz=timezone.utc
+                    )
+                #timestamp = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
             elif entry.get("published"):
-                timestamp = dateparser.parse(entry.published)
+                parsed = dateparser.parse(entry.published)
+                # ensure tz-aware in UTC
+                if parsed.tzinfo is None:
+                    utc_dt = parsed.replace(tzinfo=timezone.utc)
+                else:
+                    utc_dt = parsed.astimezone(timezone.utc)
             else:
-                timestamp = datetime.now()
+                utc_dt = datetime.now(timezone.utc)
+            # then convert into local_tz if requested
+            if local_tz:
+                timestamp = utc_dt.astimezone(local_tz)
+            else:
+                timestamp = utc_dt
+            
             fetched_at = datetime.now()
             # 3) Company‐mention detection
             full_text = f"{title} {summary}"
