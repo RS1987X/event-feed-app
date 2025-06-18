@@ -50,7 +50,7 @@ dvc push
 >Copy credentials.json into the project root from your secure backup (e.g. USB)
 
 
->Run program by 
+## Run program 
 
 ```bash
 python main.py
