@@ -44,3 +44,14 @@ dvc push
 >GitHub will block pushes if secrets are accidentally committed.
 
 >DVC uses .dvc/cache/ to store data versions — no need to manage this manually.
+
+##Access to gmail via api
+
+>Copy credentials.json into the project root from your secure backup (e.g. USB)
+
+
+>Run program by 
+
+```bash
+python main.py
+```
