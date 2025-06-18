@@ -21,7 +21,7 @@ def safe_add_event(window, event):
 def poll_gmail(window):
     last_event_time = time.time()
     POLL_INTERVAL = 60  # seconds
-    HEARTBEAT_INTERVAL = 300  # seconds without new events triggers a "still alive" message
+    HEARTBEAT_INTERVAL = 900  # seconds without new events triggers a "still alive" message
 
     while True:
         try:
@@ -63,7 +63,7 @@ from sources.rss_sources import fetch_latest_di_headlines
 
 def poll_rss(window):
     POLL_INTERVAL = 120  # check every 2 minutes
-    HEARTBEAT_INTERVAL = 300  # 5 minutes
+    HEARTBEAT_INTERVAL = 900  # 5 minutes
     seen_links = set()
     last_event_time = time.time()
 
@@ -113,7 +113,7 @@ from sources.rss_sources import fetch_thomson_rss
 
 def poll_thomson_rss(window):
     POLL_INTERVAL = 120             # every 2 minutes
-    HEARTBEAT_INTERVAL = 300        # 5 minutes
+    HEARTBEAT_INTERVAL = 900        # 5 minutes
     seen_links = set()
     last_event_time = time.time()
 

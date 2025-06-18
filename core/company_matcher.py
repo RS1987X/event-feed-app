@@ -33,7 +33,10 @@ GENERIC_NOUNS_SWE = {"grupp", "holding", "industri", "industrikoncern", "tjänst
 "fastigheter", "förvaltning", "logistik", "transport", "media", "produktion", 
 "service", "design", "innovation", "management", "kapital", "finans", "resurser", "utbildning", "momentum"}
 
-GENERIC_TOKENS = LOADED_GENERIC | GENERIC_NOUNS | GENERIC_ADJ | GENERIC_NOUNS_SWE
+GENERIC_SWE_WORDS = {"svenska", "svenska", "svenskt", "sverige"}
+
+
+GENERIC_TOKENS = LOADED_GENERIC | GENERIC_NOUNS | GENERIC_ADJ | GENERIC_NOUNS_SWE | GENERIC_SWE_WORDS
 
 
 
