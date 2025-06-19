@@ -10,6 +10,7 @@ from core.company_matcher import detect_mentioned_company_NER
 import logging
 from dateutil import parser as dateparser  # more robust than strptime
 import calendar
+from utils.time_utils import parse_rss_timestamp, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -19,19 +20,73 @@ COMPANY_NAMES = load_company_names()
 DI_FEED_URL = "https://www.di.se/rss"
 
 def fetch_latest_di_headlines(limit=10):
-    return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit, local_tz= STOCKHOLM)
+    return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit, display_tz= None)
 
 THOMSON_FEED = "https://ir.thomsonreuters.com/rss/news-releases.xml?items=15"
 
 def fetch_thomson_rss(limit=10):
-    return fetch_rss_events(THOMSON_FEED, "Thomson Reuters IR",limit,local_tz=None)
+    return fetch_rss_events(THOMSON_FEED, "Thomson Reuters IR",limit,display_tz=None)
+
+
+
+# # Declare how each source treats its timestamps
+# TZ_HANDLING = {
+#     "DI.se RSS": {
+#         "struct_is_utc": True,    # feedparser.published_parsed is UTC
+#         "default_tz": "UTC",      # free‐form dates default to UTC
+#     },
+#     "Thomson Reuters IR": {
+#         "struct_is_utc": True,   # published_parsed is actually local Stockholm
+#         "default_tz": "UTC",
+#     },
+# }
+
+# def parse_timestamp(entry, source_name: str) -> datetime:
+#     """
+#     Return a tz-aware UTC datetime for this entry, no matter what the feed gave you.
+#     """
+#     cfg = TZ_HANDLING.get(source_name, {})
+#     struct_is_utc = cfg.get("struct_is_utc", True)
+#     default_tz     = cfg.get("default_tz", "UTC")
+
+#     # 1) If feedparser gave us published_parsed (always naive struct_time)
+#     if entry.get("published_parsed"):
+#         if struct_is_utc:
+#             # trust it as UTC
+#             utc_dt = datetime.fromtimestamp(
+#                 calendar.timegm(entry.published_parsed),
+#                 tz=timezone.utc
+#             )
+#         else:
+#             # treat struct_time as local to default_tz, then convert to UTC
+#             naive = datetime(*entry.published_parsed[:6])
+#             local_dt = naive.replace(tzinfo=ZoneInfo(default_tz))
+#             utc_dt = local_dt.astimezone(timezone.utc)
+
+#     # 2) Else if we only have a free‐form published string
+#     elif entry.get("published"):
+#         parsed = dateparser.parse(
+#             entry.published,
+#             settings={
+#                 "RETURN_AS_TIMEZONE_AWARE": True,
+#                 "TIMEZONE": default_tz,
+#                 "TO_TIMEZONE": "UTC",
+#             },
+#         )
+#         utc_dt = parsed if parsed else datetime.now(timezone.utc)
+
+#     # 3) No timestamp at all: fallback to now
+#     else:
+#         utc_dt = datetime.now(timezone.utc)
+
+#     return utc_dt
 
 
 def fetch_rss_events(
     feed_url: str,
     source_name: str,
     limit: int | None = None,
-    local_tz: ZoneInfo | None = None
+    display_tz: ZoneInfo | None = None
 ) -> list[Event]:
     """
     Generic RSS → Event fetcher with company‐mention filtering.
@@ -49,30 +104,40 @@ def fetch_rss_events(
             title   = entry.get("title", "").strip()
             summary = getattr(entry, "summary", "").strip()
 
-            # parse as UTC first
-            if entry.get("published_parsed"):
-                # published_parsed is a time.struct_time in UTC (no tzinfo)
-                utc_dt = datetime.fromtimestamp(
-                    calendar.timegm(entry.published_parsed),
-                    tz=timezone.utc
-                    )
-                #timestamp = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-            elif entry.get("published"):
-                parsed = dateparser.parse(entry.published)
-                # ensure tz-aware in UTC
-                if parsed.tzinfo is None:
-                    utc_dt = parsed.replace(tzinfo=timezone.utc)
-                else:
-                    utc_dt = parsed.astimezone(timezone.utc)
-            else:
-                utc_dt = datetime.now(timezone.utc)
-            # then convert into local_tz if requested
-            if local_tz:
-                timestamp = utc_dt.astimezone(local_tz)
-            else:
-                timestamp = utc_dt
+            # # parse as UTC first
+            # if entry.get("published_parsed"):
+            #     # published_parsed is a time.struct_time in UTC (no tzinfo)
+            #     utc_dt = datetime.fromtimestamp(
+            #         calendar.timegm(entry.published_parsed),
+            #         tz=timezone.utc
+            #         )
+            #     #timestamp = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            # elif entry.get("published"):
+            #     parsed = dateparser.parse(entry.published)
+            #     # ensure tz-aware in UTC
+            #     if parsed.tzinfo is None:
+            #         utc_dt = parsed.replace(tzinfo=timezone.utc)
+            #     else:
+            #         utc_dt = parsed.astimezone(timezone.utc)
+            # else:
+            #     utc_dt = datetime.now(timezone.utc)
             
-            fetched_at = datetime.now()
+            # # 2) Optionally convert to a display timezone
+            # if display_tz:
+            #     ts = utc_dt.astimezone(display_tz)
+            # else:
+            #     ts = utc_dt
+
+            #fetched_at = datetime.now()
+
+            # 1) Normalize published date into a UTC datetime
+            utc_dt = parse_rss_timestamp(entry, source_name)
+
+            # 2) Store both timestamp & fetched_at in UTC
+            #    If you ever want a local display version, do that in your UI
+            ts = utc_dt                         # tz-aware UTC
+            fetched_at = utc_now()
+
             # 3) Company‐mention detection
             full_text = f"{title} {summary}"
             matches = detect_mentioned_company_NER(full_text, COMPANY_NAMES)
@@ -92,7 +157,7 @@ def fetch_rss_events(
             events.append(Event(
                 source=source_name,
                 title=title,
-                timestamp=timestamp,
+                timestamp=ts,
                 fetched_at=fetched_at,
                 content=summary,
                 metadata={
@@ -123,75 +188,3 @@ def fetch_rss_events(
             )
 
     return events
-
-
-
-
-# def fetch_latest_di_headlines(limit=5) -> list[Event]:
-#     feed = feedparser.parse(FEED_URL)
-#     events = []
-
-#     for entry in feed.entries[:limit]:
-#         try:
-#             title = entry.get("title", "")
-#             content = entry.get("summary", "")
-#             combined = f"{title} {content}"
-
-#             mentioned = detect_mentioned_company(combined, COMPANY_NAMES)
-#             if not mentioned:
-#                 continue  # Skip this entry if no company is detected
-
-#             dt = datetime(*entry.published_parsed[:6]) if entry.get("published_parsed") else datetime.now()
-#             link = entry.get("link", "")
-#             matched_company, matched_token = mentioned
-#             events.append(Event(
-#                 source="DI.se RSS",
-#                 title=title,
-#                 timestamp=dt,
-#                 content=content,
-#                 metadata={
-#                     "link": link,
-#                     "company": mentioned,
-#                     "type": "di/rss-event",
-#                     "matched_company": matched_company,
-#                     "matched_token": matched_token
-#                 }
-#             ))
-#         except Exception as e:
-#             logger.warning(f"Failed to parse DI entry: {e} — Title: {getattr(entry, 'title', '')}")
-
-#     return events
-
-
-# def fetch_thomson_rss() -> list[Event]:
-#     feed = feedparser.parse(FEED_URL)
-#     events = []
-
-#     for entry in feed.entries:
-#         try:
-#             published = dateparser.parse(entry.published)
-#             title = entry.title.strip()
-#             summary = entry.summary.strip() if hasattr(entry, "summary") else ""
-#             full_text = f"{title} {summary}"
-
-#             matched_company = detect_mentioned_company(full_text, COMPANY_NAMES)
-#             matched_company, matched_token = matched_company
-#             if matched_company:
-#                 event = Event(
-#                     source="Thomson Reuters IR",
-#                     title=title,
-#                     timestamp=published,
-#                     content=summary,
-#                     metadata={
-#                         "link": entry.link,
-#                         "matched_company": matched_company,
-#                         "matched_token": matched_token
-#                     }
-#                 )
-#                 events.append(event)
-
-#         except Exception as e:
-#             logger.warning(f"Failed to parse Thomson Reuters entry: {e} — Title: {getattr(entry, 'title', '')}")
-
-#     return events
-

@@ -8,6 +8,7 @@ import os
 import re
 from core.company_loader import load_company_names
 from core.company_matcher import detect_mentioned_company_NER
+from utils.time_utils import utc_from_epoch_ms, utc_now
 
 def fetch_recent_emails(max_results=10):
     service = get_gmail_service()
@@ -28,8 +29,10 @@ def fetch_recent_emails(max_results=10):
 
         subject = _extract_header(headers, 'Subject') or "(No Subject)"
         sender = _extract_header(headers, 'From') or "Unknown Sender"
-        timestamp = int(full_msg['internalDate']) / 1000
-        dt = datetime.fromtimestamp(timestamp)
+        # timestamp = int(full_msg['internalDate']) / 1000
+        # dt = datetime.fromtimestamp(timestamp)
+        dt = utc_from_epoch_ms(int(full_msg['internalDate']))
+        fetched_at = utc_now()
 
         body = _extract_email_body(payload)
         
@@ -55,7 +58,7 @@ def fetch_recent_emails(max_results=10):
             source="Gmail",
             title=subject,
             timestamp=dt,
-            fetched_at=dt,
+            fetched_at=fetched_at,
             content=f"From: {sender}\n\n{body}",
             metadata={"id": msg['id'],
                 "sender": sender,
