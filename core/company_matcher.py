@@ -4,7 +4,7 @@ from spacy.lang.en.stop_words import STOP_WORDS as EN_STOPWORDS
 from spacy.lang.sv.stop_words import STOP_WORDS as SV_STOPWORDS
 import json
 import os
-
+from core.company_loader import load_company_names
 logger = logging.getLogger(__name__)
 
 # 1) Multilingual NER
@@ -12,6 +12,9 @@ nlp = spacy.load("xx_ent_wiki_sm")
 
 # 2) Combined stop-words for English + Swedish
 STOPWORDS = EN_STOPWORDS | SV_STOPWORDS
+
+STOPWORDS.discard("be") #BE GROUP AB special case
+
 
 SCRIPT_DIR = os.path.dirname(__file__)
 DATA_PATH = os.path.join(SCRIPT_DIR, "..", "data", "generic_tokens.json")
@@ -38,6 +41,39 @@ GENERIC_SWE_WORDS = {"svenska", "svenska", "svenskt", "sverige"}
 
 GENERIC_TOKENS = LOADED_GENERIC | GENERIC_NOUNS | GENERIC_ADJ | GENERIC_NOUNS_SWE | GENERIC_SWE_WORDS
 
+COMPANY_NAMES = load_company_names()
+
+
+
+
+# ——— Build your base‐symbol lookup (using symbol, not ticker) ———
+BASE_TICKERS = set()
+TICKER_TO_NAME: dict[str, list[str]] = {}
+
+for c in COMPANY_NAMES:
+    sym = c.get("symbol", "")
+    raw_sym = sym.upper().strip()
+    if not raw_sym:
+        continue
+      # if symbol contains a class letter (e.g. "SEB A"), we still take only the base
+    parts = raw_sym.split()
+    base = parts[0]
+    BASE_TICKERS.add(base)
+    TICKER_TO_NAME.setdefault(base, []).append(c["name"])
+
+
+# # Build a set of base tickers (uppercase, no class letters)
+# BASE_TICKERS = {
+#     c["ticker"].upper().split()[0]
+#     for c in COMPANY_NAMES
+#     if c.get("ticker")
+# }
+
+# TICKER_TO_NAME = {}
+# for c in COMPANY_NAMES:
+#     ticker = c.get("ticker", "").upper().strip().split()[0]
+#     if ticker:
+#         TICKER_TO_NAME.setdefault(ticker, []).append(c["name"])
 
 
 from cleanco import basename
@@ -94,24 +130,62 @@ def detect_mentioned_company_NER(
 
         for span in candidates:
             span_norm = normalize(span)
+            
             if len(span_norm) < 2:
                 continue
 
+            # 1) Skip if the entire normalized span is generic
+            if span_norm in GENERIC_TOKENS:
+                continue
+
+            span_tok = set(span_norm.split())
+
+            # 2) Skip if _all_ tokens are generic
+            if span_tok <= GENERIC_TOKENS:
+                continue
+
             for comp in companies:
+                if comp["name"] == "Skandinaviska Enskilda Banken AB":
+                    print("dadw")
                 if comp["name"] in result_map:
                     continue
+                # 3) Normalize company name _without_ stripping "AB"/"Ltd"
                 name_norm = normalize(comp["name"])
-                # pick metric
-                if len(span_norm) < 5:
-                    score = fuzz.ratio(name_norm, span_norm)
-                else:
-                    score = fuzz.token_set_ratio(name_norm, span_norm)
+                name_toks = set(name_norm.split())
+
+                if not name_toks:
+                    continue
+
+                ## 4) Skip overlap if it’s only generic tokens
+                if span_tok <= GENERIC_TOKENS:
+                    continue
+                
+                # 1) Enforce multi-token overlap ratio
+                overlap = name_toks & span_tok
+                if all(tok in GENERIC_TOKENS for tok in overlap):
+                    continue
+                
+                # 5) Compute your fuzzy score
+                score = (
+                    fuzz.ratio(name_norm, span_norm)
+                    if len(span_norm) < 5
+                    else fuzz.token_set_ratio(name_norm, span_norm)
+                )
 
                 if score > threshold:
                     result_map[comp["name"]] = span
                     break
                     #best, best_score = (comp["name"], span_norm), score
-        if len(result_map) < len(companies):
+        
+        # ——— 1.5) Exact BASE‐TICKER matching ———
+        # catch standalone “SEB”, “ABB”, etc.
+        for tok in re.findall(r"\b[A-Z]{2,5}\b", text):
+            if tok in BASE_TICKERS:
+                for company in TICKER_TO_NAME[tok]:
+                    if company not in result_map:
+                        result_map[company] = tok
+        
+        if not result_map:
             tokens = text.split()
             for phrase_tokens in sliding_ngrams(tokens, max_n=4):
                 phrase = " ".join(phrase_tokens)

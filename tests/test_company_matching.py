@@ -28,11 +28,22 @@ def test_detection():
         ("Absolent Air Care vinstvarnar", True),
         ("Addvise rapporterar", True),
         ("a global content and technology company", False),
+        (
+        "SEB spår kraftigt orderras från Saab. "
+        "SEB höjer riktkursen för försvarsbolaget Saab inför rapporten "
+        "för det andra kvartalet där banken räknar med stark intäktstillväxt. "
+        "Samtidigt varnar analytikern för en kraftig nedgång i orderingången "
+        "och aktiens höga värdering.",
+        True
+    ),
+    ("Vitec Group vinner order", True)
 
         
     ]
 
     for text, expected in examples:
+        if "Group" in text:
+            print("dawdwa")
         match = detect_mentioned_company_NER(text, companies)
         assert bool(match) == expected, f"Failed on: {text}"
         print(f"✅ Detected: {match} for: '{text}'")
