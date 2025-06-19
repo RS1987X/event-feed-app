@@ -10,3 +10,4 @@ client_secret_*.json
 data/*.csv
 data/*.json
 data/**/*.db
+sa-key.json
