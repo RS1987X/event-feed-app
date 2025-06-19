@@ -26,7 +26,7 @@ def poll_gmail(window):
 
     while True:
         try:
-            emails = fetch_recent_emails(max_results=10)
+            emails = fetch_recent_emails(max_results=100)
             new_events = 0
             
             for e in emails:
@@ -74,7 +74,7 @@ def poll_rss(window):
 
     while True:
         try:
-            headlines = fetch_latest_di_headlines(limit=10)
+            headlines = fetch_latest_di_headlines(limit=100)
             new_events = 0
 
             for event in headlines:
@@ -129,7 +129,7 @@ def poll_thomson_rss(window):
 
     while True:
         try:
-            headlines = fetch_thomson_rss()
+            headlines = fetch_thomson_rss(limit=100)
             new_events = 0
 
             for event in headlines:

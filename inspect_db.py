@@ -28,5 +28,14 @@ def main():
     print(f"\nLast {len(last_rows)} rows:")
     pprint(last_rows)
 
+    cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_company';")
+    print("Schema for event_table:")
+    print(cur.fetchone()[0])
+
+    cur.execute("SELECT * FROM event_company ORDER BY event_id, company_id DESC LIMIT 3;")
+    last_rows = cur.fetchall()
+    print(f"\nLast {len(last_rows)} rows:")
+    pprint(last_rows)
+
 if __name__ == "__main__":
     main()

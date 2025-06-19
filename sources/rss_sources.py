@@ -19,12 +19,12 @@ COMPANY_NAMES = load_company_names()
 
 DI_FEED_URL = "https://www.di.se/rss"
 
-def fetch_latest_di_headlines(limit=10):
+def fetch_latest_di_headlines(limit):
     return fetch_rss_events(DI_FEED_URL, "DI.se RSS", limit, display_tz= None)
 
 THOMSON_FEED = "https://ir.thomsonreuters.com/rss/news-releases.xml?items=15"
 
-def fetch_thomson_rss(limit=10):
+def fetch_thomson_rss(limit):
     return fetch_rss_events(THOMSON_FEED, "Thomson Reuters IR",limit,display_tz=None)
 
 
@@ -159,8 +159,9 @@ def fetch_rss_events(
                 title=title,
                 timestamp=ts,
                 fetched_at=fetched_at,
-                content=summary,
+                content="",
                 metadata={
+                    "summary" : summary,
                     "link":  entry.get("link", ""),
                     "company": ", ".join(company_names),
                     "ticker": ", ".join(tickers),

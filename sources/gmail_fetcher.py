@@ -10,7 +10,7 @@ from core.company_loader import load_company_names
 from core.company_matcher import detect_mentioned_company_NER
 from utils.time_utils import utc_from_epoch_ms, utc_now
 
-def fetch_recent_emails(max_results=10):
+def fetch_recent_emails(max_results):
     service = get_gmail_service()
     results = service.users().messages().list(
         userId='me',
@@ -63,7 +63,7 @@ def fetch_recent_emails(max_results=10):
             metadata={"id": msg['id'],
                 "sender": sender,
                 "company": company,
-                "ticker": ticker
+                "ticker": ticker,
                 }
         )
         events.append(event)

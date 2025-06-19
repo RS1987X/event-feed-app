@@ -13,7 +13,7 @@ nlp = spacy.load("xx_ent_wiki_sm")
 # 2) Combined stop-words for English + Swedish
 STOPWORDS = EN_STOPWORDS | SV_STOPWORDS
 
-STOPWORDS.discard("be") #BE GROUP AB special case
+#STOPWORDS.discard("be") #BE GROUP AB special case
 
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -42,9 +42,6 @@ GENERIC_SWE_WORDS = {"svenska", "svenska", "svenskt", "sverige"}
 GENERIC_TOKENS = LOADED_GENERIC | GENERIC_NOUNS | GENERIC_ADJ | GENERIC_NOUNS_SWE | GENERIC_SWE_WORDS
 
 COMPANY_NAMES = load_company_names()
-
-
-
 
 # ——— Build your base‐symbol lookup (using symbol, not ticker) ———
 BASE_TICKERS = set()
@@ -145,8 +142,6 @@ def detect_mentioned_company_NER(
                 continue
 
             for comp in companies:
-                if comp["name"] == "Skandinaviska Enskilda Banken AB":
-                    print("dadw")
                 if comp["name"] in result_map:
                     continue
                 # 3) Normalize company name _without_ stripping "AB"/"Ltd"
