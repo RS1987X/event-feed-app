@@ -1,6 +1,6 @@
 [core]
     remote = mygdrive
-['remote "mygdrive"']
+[remote "mygdrive"]
     url = gdrive://1hC8uR9d-2IqciYw6p272PUSR5UKUgmQ2
     gdrive_use_service_account = true
     gdrive_service_account_json_file_path = /secrets/EVENT_FEED_SA_KEY
