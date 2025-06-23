@@ -1,0 +1,6 @@
+# ignore local venv, bytecode, editor temp files…
+**/__pycache__/
+.venv/
+/.dvc/cache/
+/.dvc/tmp/
+/*.pyc
