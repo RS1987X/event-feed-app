@@ -6,14 +6,18 @@ from datetime import datetime
 import base64
 import os
 import re
+import socket
 from core.company_loader import load_company_names
 from core.company_matcher import detect_mentioned_company_NER
 from utils.time_utils import utc_from_epoch_ms, utc_now
+import logging
+
 
 def fetch_recent_emails(max_results):
+
     service = get_gmail_service()
     results = service.users().messages().list(
-        userId='me',
+        userId='rs.newsfeed.123@gmail.com',
         labelIds=['INBOX'],
         #q='is:unread',
         maxResults=max_results
