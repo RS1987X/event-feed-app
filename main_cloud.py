@@ -7,11 +7,14 @@ from datetime import datetime
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from httplib2 import ServerNotFoundError
+from http.client import RemoteDisconnected
+from ssl import SSLEOFError
 import socket 
 from core.event_types import Event
 from sources.gmail_fetcher import fetch_recent_emails
 from sources.rss_sources import fetch_latest_di_headlines, fetch_thomson_rss
-from core.oltp_store import insert_if_new, init_db
+from core.oltp_store import insert_if_new, init_db, DB_PATH
+#from code.oltp_store import DB_PATH
 
 # Configure logging to stdout
 logging.basicConfig(
@@ -50,65 +53,47 @@ BACKOFF            = 5          # seconds between DVC or DNS retries
 #             logging.exception("[Gmail] Error fetching emails:")
 
 #         time.sleep(POLL_INTERVAL_GMAIL)
-
-
-def poll_gmail_forever():
+def poll_gmail_forever(max_results=100):
     last_event_time = time.time()
 
     while True:
-        # --- Retry-aware fetch step ---
-        for attempt in range(1, RETRIES+1):
-            try:
-                logging.info(f"[Gmail] Fetch attempt {attempt}/{RETRIES}")
-                emails = fetch_recent_emails(max_results=100)
-                break
-            except (ServerNotFoundError, socket.gaierror) as e:
-                logging.warning(f"[Gmail] DNS error: {e}")
-                if attempt < RETRIES:
-                    time.sleep(BACKOFF)
-                else:
-                    logging.error("[Gmail] All DNS retries failed; skipping this cycle")
-                    emails = []
-            except Exception:
-                logging.exception("[Gmail] Unexpected error; skipping this cycle")
-                emails = []
-                break
+        # use retry_fetch to do up to RETRIES attempts
+        emails = retry_fetch(
+            fetch_fn=lambda limit: fetch_recent_emails(max_results=limit),
+            name="Gmail",
+            limit=max_results,
+        )
 
         # --- Process results & heartbeat ---
         new_events = 0
         for e in emails:
             if insert_if_new(e):
-                logging.info(f"[Gmail] New event: {e.title}")
+                logging.info(f"[Gmail] New event: {e.title} at {e.fetched_at}")
                 new_events += 1
 
         now = time.time()
-        if new_events:
+        if new_events > 0:
             last_event_time = now
         elif now - last_event_time > HEARTBEAT_INTERVAL:
             logging.info("[Gmail] No new events in the last hour.")
             last_event_time = now
 
-        # --- Wait for next cycle ---
+        # --- Sleep until next poll ---
         time.sleep(POLL_INTERVAL_GMAIL)
 
 
 def poll_rss_forever(limit=100):
     last_event_time = time.time()
+
     while True:
-        # --- Retry logic around fetch ---
-        for attempt in range(1, RETRIES+1):
-            try:
-                logging.info(f"[DI.se RSS] Fetch attempt {attempt}/{RETRIES}")
-                headlines = fetch_latest_di_headlines(limit=limit)
-                break
-            except Exception as e:
-                logging.warning(f"[DI.se RSS] Fetch failed (attempt {attempt}): {e}")
-                if attempt < RETRIES:
-                    time.sleep(BACKOFF)
-                else:
-                    logging.error("[DI.se RSS] All fetch attempts failed; skipping this cycle")
-                    headlines = []
-        # --- Process results & heartbeat ---
+        # Fetch with unified retry logic
+        headlines = retry_fetch(
+            fetch_fn=fetch_latest_di_headlines,
+            name="DI.se RSS",
+            limit=limit,
+        )
+
+        # Process new headlines
         new_events = 0
         for ev in headlines:
             if insert_if_new(ev):
@@ -118,6 +103,7 @@ def poll_rss_forever(limit=100):
                 )
                 new_events += 1
 
+        # Heartbeat if nothing new for too long
         now = time.time()
         if new_events > 0:
             last_event_time = now
@@ -125,28 +111,21 @@ def poll_rss_forever(limit=100):
             logging.info("[DI.se RSS] No new items in the last interval.")
             last_event_time = now
 
-        # wait for next poll
+        # Wait for next cycle
         time.sleep(POLL_INTERVAL_RSS)
-
 
 def poll_thomson_rss_forever(limit=100):
     last_event_time = time.time()
-    while True:
-        # --- Retry logic around fetch ---
-        for attempt in range(1, RETRIES+1):
-            try:
-                logging.info(f"[Thomson RSS] Fetch attempt {attempt}/{RETRIES}")
-                items = fetch_thomson_rss(limit=limit)
-                break
-            except Exception as e:
-                logging.warning(f"[Thomson RSS] Fetch failed (attempt {attempt}): {e}")
-                if attempt < RETRIES:
-                    time.sleep(BACKOFF)
-                else:
-                    logging.error("[Thomson RSS] All fetch attempts failed; skipping this cycle")
-                    items = []
 
-        # --- Process results & heartbeat ---
+    while True:
+        # Fetch with unified retry logic
+        items = retry_fetch(
+            fetch_fn=fetch_thomson_rss,
+            name="Thomson RSS",
+            limit=limit,
+        )
+
+        # Process new items
         new_events = 0
         for ev in items:
             if insert_if_new(ev):
@@ -156,6 +135,7 @@ def poll_thomson_rss_forever(limit=100):
                 )
                 new_events += 1
 
+        # Heartbeat
         now = time.time()
         if new_events > 0:
             last_event_time = now
@@ -163,9 +143,29 @@ def poll_thomson_rss_forever(limit=100):
             logging.info("[Thomson RSS] No new items in the last interval.")
             last_event_time = now
 
-        # wait for next poll
+        # Sleep until next cycle
         time.sleep(POLL_INTERVAL_RSS)
 
+
+def retry_fetch(fetch_fn, name, limit, retries=RETRIES, backoff=BACKOFF):
+    """
+    Generic retry wrapper for fetch functions.
+    - fetch_fn: a callable taking (limit).
+    - name: for logging (e.g. "DI.se RSS").
+    Returns the fetched list (or empty on ultimate failure).
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            logging.info(f"[{name}] Fetch attempt {attempt}/{retries}")
+            return fetch_fn(limit)
+        except (SSLEOFError, RemoteDisconnected, ServerNotFoundError, socket.gaierror) as e:
+            logging.warning(f"[{name}] Network error (attempt {attempt}): {e}")
+        except Exception:
+            logging.exception(f"[{name}] Unexpected error (attempt {attempt})")
+        if attempt < retries:
+            time.sleep(backoff)
+    logging.error(f"[{name}] All fetch attempts failed; skipping this cycle")
+    return []
 
 def poll_gmail(max_results=100, retries=3, backoff=5):
     """
@@ -290,7 +290,6 @@ def pull_with_retries(remote="mygdrive", retries=3, delay=5):
 # ── DVC PUSH WITH RETRIES ──────────────────────────────────────────────────────
 
 def push_db_with_retries(
-    db_path="events.db",
     remote="mygdrive",
     retries=3,
     delay=5
@@ -299,19 +298,24 @@ def push_db_with_retries(
     Attempt to dvc add/commit + push events.db up to `retries` times,
     with `delay` seconds between attempts. Returns True on success.
     """
-    dvc_meta = f"{db_path}.dvc"
+    # 1) Make sure the DB exists
+    if not DB_PATH.is_file():
+        logging.info(f"DB-push: '{DB_PATH}' not found; skipping this run")
+        return False
+
+    dvc_meta = DB_PATH.with_suffix(DB_PATH.suffix + ".dvc")
     for attempt in range(1, retries + 1):
         start = time.time()
         try:
             logging.info(f"DB-push attempt {attempt}/{retries}")
 
             # 1) Track or commit the file in DVC
-            if not os.path.exists(dvc_meta):
+            if not dvc_meta.exists():
                 logging.info("Tracking new events.db with `dvc add`")
-                subprocess.check_call(["dvc", "add", db_path])
+                subprocess.check_call(["dvc", "add", str(DB_PATH)])
             else:
                 logging.info("Updating existing DVC entry with `dvc commit`")
-                subprocess.check_call(["dvc", "commit", db_path])
+                subprocess.check_call(["dvc", "commit", str(DB_PATH)])
 
             # 2) Push to remote
             subprocess.check_call(["dvc", "push", "-r", remote])
@@ -364,7 +368,6 @@ def main():
         target=periodic_push,
         kwargs={
             "interval_minutes": 30,
-            "db_path": "events.db",
             "remote": "mygdrive",
             "retries": 3,
             "delay": 5,

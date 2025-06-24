@@ -23,6 +23,7 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         # 1) New events table (no company/ticker columns)
         conn.execute("""
