@@ -37,5 +37,10 @@ def main():
     print(f"\nLast {len(last_rows)} rows:")
     pprint(last_rows)
 
+    cur.execute("SELECT * FROM event_company AS a JOIN events AS b ON a.event_id = b.id ORDER BY b.fetched_at DESC LIMIT 3;")
+    last_rows = cur.fetchall()
+    print(f"\nLast {len(last_rows)} rows:")
+    pprint(last_rows)
+
 if __name__ == "__main__":
     main()

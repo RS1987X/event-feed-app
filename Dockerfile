@@ -2,6 +2,8 @@
 
 FROM python:3.12-slim
 
+ENV PYTHONUNBUFFERED=1
+
 # 1. Install OS-level build tools for C-extensions, Spacy, DVC, etc.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -20,6 +22,7 @@ WORKDIR /app
 # 2. Copy & install Python dependencies
 COPY . .
  #.env requirements.txt . /
+
 
 RUN pip install --upgrade pip \
     && pip install --no-cache-dir "dvc[gdrive]" \

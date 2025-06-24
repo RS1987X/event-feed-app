@@ -4,3 +4,7 @@
 /.dvc/cache/
 /.dvc/tmp/
 /*.pyc
+
+sa-key.json
+token.json
+credentials.json
