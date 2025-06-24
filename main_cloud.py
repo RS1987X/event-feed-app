@@ -57,6 +57,16 @@ def poll_gmail_forever(max_results=100):
     last_event_time = time.time()
 
     while True:
+
+        # DNS resolution check before fetch
+        try:
+            socket.gethostbyname("imap.gmail.com")
+        except socket.gaierror as e:
+            logging.error(f"[Gmail DNS Check] DNS resolution failed: {e}")
+            # Optional retry delay or continue immediately
+            time.sleep(30)
+            continue  # Retry in next loop iteration
+
         # use retry_fetch to do up to RETRIES attempts
         emails = retry_fetch(
             fetch_fn=lambda limit: fetch_recent_emails(max_results=limit),
@@ -158,7 +168,8 @@ def retry_fetch(fetch_fn, name, limit, retries=RETRIES, backoff=BACKOFF):
         try:
             logging.info(f"[{name}] Fetch attempt {attempt}/{retries}")
             return fetch_fn(limit)
-        except (SSLEOFError, RemoteDisconnected, ServerNotFoundError, socket.gaierror) as e:
+        except (SSLEOFError, RemoteDisconnected, ServerNotFoundError, socket.gaierror,
+                socket.gaierror, TimeoutError, socket.timeout, ConnectionResetError) as e:
             logging.warning(f"[{name}] Network error (attempt {attempt}): {e}")
         except Exception:
             logging.exception(f"[{name}] Unexpected error (attempt {attempt})")
@@ -317,7 +328,10 @@ def push_db_with_retries(
                 logging.info("Updating existing DVC entry with `dvc commit`")
                 subprocess.check_call(["dvc", "commit", str(DB_PATH)])
 
+            #check if anything is queud for upload
+            subprocess.run(["dvc", "status", "-r", remote], check=False)
             # 2) Push to remote
+            logging.info("Calling `dvc push`...")
             subprocess.check_call(["dvc", "push", "-r", remote])
 
             elapsed = time.time() - start
@@ -362,7 +376,11 @@ def main():
         t = threading.Thread(target=target, daemon=True)
         t.start()
 
-    
+
+    #check what container thinks the remote config is
+    logging.info("Checking DVC remote config:")
+    subprocess.run(["dvc", "remote", "list", "-v"])
+
     # 3) Start periodic DB-push every 30 minutes
     threading.Thread(
         target=periodic_push,
