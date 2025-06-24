@@ -15,12 +15,15 @@ from sources.gmail_fetcher import fetch_recent_emails
 from sources.rss_sources import fetch_latest_di_headlines, fetch_thomson_rss
 from core.oltp_store import insert_if_new, init_db, DB_PATH
 #from code.oltp_store import DB_PATH
+import sys
+import tempfile
 
 # Configure logging to stdout
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S'
+    datefmt='%Y-%m-%dT%H:%M:%S',
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
 # Polling intervals (in seconds)
@@ -54,107 +57,117 @@ BACKOFF            = 5          # seconds between DVC or DNS retries
 
 #         time.sleep(POLL_INTERVAL_GMAIL)
 def poll_gmail_forever(max_results=100):
+    logging.info("[Gmail Poller] Starting Gmail polling loop...")
     last_event_time = time.time()
+    try:
+        while True:
 
-    while True:
+            # DNS resolution check before fetch
+            try:
+                socket.gethostbyname("imap.gmail.com")
+            except socket.gaierror as e:
+                logging.error(f"[Gmail DNS Check] DNS resolution failed: {e}")
+                # Optional retry delay or continue immediately
+                time.sleep(30)
+                continue  # Retry in next loop iteration
 
-        # DNS resolution check before fetch
-        try:
-            socket.gethostbyname("imap.gmail.com")
-        except socket.gaierror as e:
-            logging.error(f"[Gmail DNS Check] DNS resolution failed: {e}")
-            # Optional retry delay or continue immediately
-            time.sleep(30)
-            continue  # Retry in next loop iteration
+            # use retry_fetch to do up to RETRIES attempts
+            emails = retry_fetch(
+                fetch_fn=lambda limit: fetch_recent_emails(max_results=limit),
+                name="Gmail",
+                limit=max_results,
+            )
 
-        # use retry_fetch to do up to RETRIES attempts
-        emails = retry_fetch(
-            fetch_fn=lambda limit: fetch_recent_emails(max_results=limit),
-            name="Gmail",
-            limit=max_results,
-        )
+            # --- Process results & heartbeat ---
+            new_events = 0
+            for e in emails:
+                if insert_if_new(e):
+                    logging.info(f"[Gmail] New event: {e.title} at {e.fetched_at}")
+                    new_events += 1
 
-        # --- Process results & heartbeat ---
-        new_events = 0
-        for e in emails:
-            if insert_if_new(e):
-                logging.info(f"[Gmail] New event: {e.title} at {e.fetched_at}")
-                new_events += 1
+            now = time.time()
+            if new_events > 0:
+                last_event_time = now
+            elif now - last_event_time > HEARTBEAT_INTERVAL:
+                logging.info("[Gmail] No new events in the last hour.")
+                last_event_time = now
 
-        now = time.time()
-        if new_events > 0:
-            last_event_time = now
-        elif now - last_event_time > HEARTBEAT_INTERVAL:
-            logging.info("[Gmail] No new events in the last hour.")
-            last_event_time = now
-
-        # --- Sleep until next poll ---
-        time.sleep(POLL_INTERVAL_GMAIL)
-
+            # --- Sleep until next poll ---
+            time.sleep(POLL_INTERVAL_GMAIL)
+    except Exception:
+        logging.exception("[Gmail Poller] Crashed due to unexpected error!") 
 
 def poll_rss_forever(limit=100):
+    logging.info("[DI.se RSS Poller] Starting DI.se RSS polling loop...")
     last_event_time = time.time()
+    try:
 
-    while True:
-        # Fetch with unified retry logic
-        headlines = retry_fetch(
-            fetch_fn=fetch_latest_di_headlines,
-            name="DI.se RSS",
-            limit=limit,
-        )
+        while True:
+            # Fetch with unified retry logic
+            headlines = retry_fetch(
+                fetch_fn=fetch_latest_di_headlines,
+                name="DI.se RSS",
+                limit=limit,
+            )
 
-        # Process new headlines
-        new_events = 0
-        for ev in headlines:
-            if insert_if_new(ev):
-                logging.info(
-                    f"[DI.se RSS] New headline: {ev.title} at {ev.fetched_at}. "
-                    f"Company matches: {ev.metadata['matches']}."
-                )
-                new_events += 1
+            # Process new headlines
+            new_events = 0
+            for ev in headlines:
+                if insert_if_new(ev):
+                    logging.info(
+                        f"[DI.se RSS] New headline: {ev.title} at {ev.fetched_at}. "
+                        f"Company matches: {ev.metadata['matches']}."
+                    )
+                    new_events += 1
 
-        # Heartbeat if nothing new for too long
-        now = time.time()
-        if new_events > 0:
-            last_event_time = now
-        elif now - last_event_time > HEARTBEAT_INTERVAL:
-            logging.info("[DI.se RSS] No new items in the last interval.")
-            last_event_time = now
+            # Heartbeat if nothing new for too long
+            now = time.time()
+            if new_events > 0:
+                last_event_time = now
+            elif now - last_event_time > HEARTBEAT_INTERVAL:
+                logging.info("[DI.se RSS] No new items in the last interval.")
+                last_event_time = now
 
-        # Wait for next cycle
-        time.sleep(POLL_INTERVAL_RSS)
+            # Wait for next cycle
+            time.sleep(POLL_INTERVAL_RSS)
+    except Exception:
+        logging.exception("[DI.se RSS Poller] Crashed due to unexpected error!")
 
 def poll_thomson_rss_forever(limit=100):
+    logging.info("[Thomson RSS Poller] Starting Thomson RSS polling loop...")
     last_event_time = time.time()
+    try:
+            
+        while True:
+            # Fetch with unified retry logic
+            items = retry_fetch(
+                fetch_fn=fetch_thomson_rss,
+                name="Thomson RSS",
+                limit=limit,
+            )
 
-    while True:
-        # Fetch with unified retry logic
-        items = retry_fetch(
-            fetch_fn=fetch_thomson_rss,
-            name="Thomson RSS",
-            limit=limit,
-        )
+            # Process new items
+            new_events = 0
+            for ev in items:
+                if insert_if_new(ev):
+                    logging.info(
+                        f"[Thomson RSS] New item: {ev.title} at {ev.fetched_at}. "
+                        f"Company matches: {ev.metadata['matches']}."
+                    )
+                    new_events += 1
 
-        # Process new items
-        new_events = 0
-        for ev in items:
-            if insert_if_new(ev):
-                logging.info(
-                    f"[Thomson RSS] New item: {ev.title} at {ev.fetched_at}. "
-                    f"Company matches: {ev.metadata['matches']}."
-                )
-                new_events += 1
+            # Heartbeat
+            now = time.time()
+            if new_events > 0:
+                last_event_time = now
+            elif now - last_event_time > HEARTBEAT_INTERVAL:
+                logging.info("[Thomson RSS] No new items in the last interval.")
+                last_event_time = now
 
-        # Heartbeat
-        now = time.time()
-        if new_events > 0:
-            last_event_time = now
-        elif now - last_event_time > HEARTBEAT_INTERVAL:
-            logging.info("[Thomson RSS] No new items in the last interval.")
-            last_event_time = now
-
-        # Sleep until next cycle
-        time.sleep(POLL_INTERVAL_RSS)
+            # Sleep until next cycle
+            time.sleep(POLL_INTERVAL_RSS)
+    except Exception:
+        logging.exception("[Thomson RSS Poller] Crashed due to unexpected error!")
 
 
 def retry_fetch(fetch_fn, name, limit, retries=RETRIES, backoff=BACKOFF):
@@ -314,6 +327,9 @@ def push_db_with_retries(
         logging.info(f"DB-push: '{DB_PATH}' not found; skipping this run")
         return False
 
+    size_mb = os.path.getsize(DB_PATH) / 1024**2
+    logging.info(f"[DVC] events.db size: {size_mb:.2f} MB")
+
     dvc_meta = DB_PATH.with_suffix(DB_PATH.suffix + ".dvc")
     for attempt in range(1, retries + 1):
         start = time.time()
@@ -332,7 +348,8 @@ def push_db_with_retries(
             subprocess.run(["dvc", "status", "-r", remote], check=False)
             # 2) Push to remote
             logging.info("Calling `dvc push`...")
-            subprocess.check_call(["dvc", "push", "-r", remote])
+            start = time.time()
+            subprocess.check_call(["dvc", "push", "-r", remote,"-v"])
 
             elapsed = time.time() - start
             logging.info(f"DB-push succeeded in {elapsed:.1f}s")
@@ -365,21 +382,44 @@ def periodic_push(interval_minutes=30, **kwargs):
         # even on success, wait full interval before next
         time.sleep(interval)
 
+
+# def setup_service_account_key():
+#     sa_json = os.environ.get("EVENT_FEED_SA_KEY")
+#     if not sa_json:
+#         return
+
+#     # Write it to a temp file
+#     fd, path = tempfile.mkstemp(prefix="sa-key-", suffix=".json")
+#     with os.fdopen(fd, "w") as f:
+#         f.write(sa_json)
+
+#     # Point Google libraries (and DVC) at it
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+#     logging.info(f"Service account key written to {path}")
+
 def main():
+
+    # setup_service_account_key()
     # 1) Pull latest data
     #os.system("dvc pull --force")
     pull_with_retries()
     # 2) Initialize DB & start pollers
     init_db()
     logging.info("Initialized DB, starting pollers.")
-    for target in (poll_gmail_forever, poll_rss_forever, poll_thomson_rss_forever):
-        t = threading.Thread(target=target, daemon=True)
-        t.start()
+    
+    threading.Thread(target=poll_rss_forever, daemon=True).start()
+    threading.Thread(target=poll_thomson_rss_forever, daemon=True).start()
+    threading.Thread(target=poll_gmail_forever, daemon=True).start()
+    # for target in (poll_gmail_forever, poll_rss_forever, poll_thomson_rss_forever):
+    #     t = threading.Thread(target=target, daemon=True)
+    #     t.start()
 
 
     #check what container thinks the remote config is
     logging.info("Checking DVC remote config:")
     subprocess.run(["dvc", "remote", "list", "-v"])
+
+
 
     # 3) Start periodic DB-push every 30 minutes
     threading.Thread(
