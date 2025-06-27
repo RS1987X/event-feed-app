@@ -12,3 +12,4 @@ data/*.json
 data/**/*.db
 sa-key.json
 secrets/current_creds.bin
+current_creds.bin
