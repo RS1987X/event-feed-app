@@ -1,3 +1,4 @@
+import sys
 import os
 import time
 import logging
@@ -9,14 +10,38 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from httplib2 import ServerNotFoundError
 from http.client import RemoteDisconnected
 from ssl import SSLEOFError
+from urllib3.exceptions import SSLError as Urllib3SSLError
 import socket 
 from core.event_types import Event
 from sources.gmail_fetcher import fetch_recent_emails
 from sources.rss_sources import fetch_latest_di_headlines, fetch_thomson_rss
 from core.oltp_store import insert_if_new, init_db, DB_PATH
 #from code.oltp_store import DB_PATH
-import sys
+import subprocess
 import tempfile
+import random
+from urllib3.exceptions import SSLError
+from googleapiclient.errors import HttpError
+
+
+# Hosts to pre-resolve before any Gmail API or OAuth call
+DNS_HOSTS = (
+    "gmail.googleapis.com",       # Gmail JSON API
+    "www.googleapis.com",         # Discovery, token-refresh fallback
+    "oauth2.googleapis.com",      # OAuth2 token endpoint
+)
+
+
+
+#RETRY_EXCEPTIONS = (SSLError, HttpError, ConnectionError, TimeoutError)
+
+# Polling intervals (in seconds)
+POLL_INTERVAL_GMAIL = 60
+POLL_INTERVAL_RSS = 120
+HEARTBEAT_INTERVAL = 300
+RETRIES            = 3
+BACKOFF            = 5          # seconds between DVC or DNS retries
+
 
 # Configure logging to stdout
 logging.basicConfig(
@@ -25,13 +50,6 @@ logging.basicConfig(
     datefmt='%Y-%m-%dT%H:%M:%S',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-
-# Polling intervals (in seconds)
-POLL_INTERVAL_GMAIL = 60
-POLL_INTERVAL_RSS = 120
-HEARTBEAT_INTERVAL = 900
-RETRIES            = 3
-BACKOFF            = 5          # seconds between DVC or DNS retries
 
 # def poll_gmail():
 #     """
@@ -56,20 +74,25 @@ BACKOFF            = 5          # seconds between DVC or DNS retries
 #             logging.exception("[Gmail] Error fetching emails:")
 
 #         time.sleep(POLL_INTERVAL_GMAIL)
+
 def poll_gmail_forever(max_results=100):
     logging.info("[Gmail Poller] Starting Gmail polling loop...")
     last_event_time = time.time()
     try:
         while True:
 
-            # DNS resolution check before fetch
-            try:
-                socket.gethostbyname("imap.gmail.com")
-            except socket.gaierror as e:
-                logging.error(f"[Gmail DNS Check] DNS resolution failed: {e}")
-                # Optional retry delay or continue immediately
-                time.sleep(30)
-                continue  # Retry in next loop iteration
+             # --- DNS pre-check ---
+            unresolved = False
+            for host in DNS_HOSTS:
+                try:
+                    socket.gethostbyname(host)
+                except socket.gaierror as e:
+                    logging.error(f"[Gmail DNS Check] Cannot resolve {host!r}: {e}")
+                    unresolved = True
+                    break
+            if unresolved:
+                time.sleep(BACKOFF)
+                continue
 
             # use retry_fetch to do up to RETRIES attempts
             emails = retry_fetch(
@@ -77,6 +100,7 @@ def poll_gmail_forever(max_results=100):
                 name="Gmail",
                 limit=max_results,
             )
+            logging.info(f"[Gmail] Retrieved {len(emails)} messages")
 
             # --- Process results & heartbeat ---
             new_events = 0
@@ -109,7 +133,7 @@ def poll_rss_forever(limit=100):
                 name="DI.se RSS",
                 limit=limit,
             )
-
+            logging.info(f"[DI.se RSS] Fetched {len(headlines)} entries")
             # Process new headlines
             new_events = 0
             for ev in headlines:
@@ -170,6 +194,19 @@ def poll_thomson_rss_forever(limit=100):
         logging.exception("[Thomson RSS Poller] Crashed due to unexpected error!")
 
 
+
+# def retry_fetch(fetch_fn, name, limit, retries=RETRIES, base_delay=BACKOFF):
+#     for attempt in range(1, retries + 1):
+#         try:
+#             return fetch_fn(limit)
+#         except RETRY_EXCEPTIONS as e:
+#             if attempt == retries:
+#                 raise
+#             sleep_time = base_delay * (2 ** (attempt - 1))
+#             sleep_time = sleep_time * (0.8 + 0.4 * random.random())  # add ±20% jitter
+#             logging.warning(f"[{name}] Error on attempt {attempt}: {e!r}; retrying in {sleep_time:.1f}s")
+#             time.sleep(sleep_time)
+
 def retry_fetch(fetch_fn, name, limit, retries=RETRIES, backoff=BACKOFF):
     """
     Generic retry wrapper for fetch functions.
@@ -181,7 +218,7 @@ def retry_fetch(fetch_fn, name, limit, retries=RETRIES, backoff=BACKOFF):
         try:
             logging.info(f"[{name}] Fetch attempt {attempt}/{retries}")
             return fetch_fn(limit)
-        except (SSLEOFError, RemoteDisconnected, ServerNotFoundError, socket.gaierror,
+        except (SSLEOFError, Urllib3SSLError, RemoteDisconnected, ServerNotFoundError, socket.gaierror,
                 socket.gaierror, TimeoutError, socket.timeout, ConnectionResetError) as e:
             logging.warning(f"[{name}] Network error (attempt {attempt}): {e}")
         except Exception:
@@ -278,6 +315,7 @@ def poll_thomson_rss():
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(b"OK")
 
@@ -292,7 +330,7 @@ def run_http_server():
     logging.info(f"Starting health endpoint on port {port}")
     server.serve_forever()
 
-import subprocess
+
 #import time
 #import logging
 
@@ -398,8 +436,13 @@ def periodic_push(interval_minutes=30, **kwargs):
 #     logging.info(f"Service account key written to {path}")
 
 def main():
+    
+    # # DEBUG: dump env‐var and file existence
+    # key_path = os.environ.get("DVC_REMOTE_MYGDRIVE_GDRIVE_SERVICE_ACCOUNT_JSON_FILE_PATH")
+    # logging.info(f"[DEBUG] Env DVC_REMOTE_MYGDRIVE_GDRIVE_SERVICE_ACCOUNT_JSON_FILE_PATH={key_path!r}")
+    # logging.info(f"[DEBUG] File exists? {os.path.exists(key_path)}")
 
-    # setup_service_account_key()
+    #setup_service_account_key()
     # 1) Pull latest data
     #os.system("dvc pull --force")
     pull_with_retries()
@@ -409,11 +452,8 @@ def main():
     
     threading.Thread(target=poll_rss_forever, daemon=True).start()
     threading.Thread(target=poll_thomson_rss_forever, daemon=True).start()
-    threading.Thread(target=poll_gmail_forever, daemon=True).start()
-    # for target in (poll_gmail_forever, poll_rss_forever, poll_thomson_rss_forever):
-    #     t = threading.Thread(target=target, daemon=True)
-    #     t.start()
-
+    #threading.Thread(target=poll_gmail_forever, daemon=True).start()
+    
 
     #check what container thinks the remote config is
     logging.info("Checking DVC remote config:")

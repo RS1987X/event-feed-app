@@ -12,9 +12,11 @@ RUN apt-get update && \
       g++ \
       libffi-dev \
       libssl-dev \
-      python3-dev \
+      python3-dev \ 
       curl \
-      git && \
+      git &&\
+      #ca-certificates && \
+    #update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -61,4 +63,7 @@ RUN python -m spacy download en_core_web_sm && \
 #   python main_cloud.py --port ${PORT:-8080}"]
 
 
-ENTRYPOINT ["sh","-c","echo \"Starting with PORT=$PORT\" && python main_cloud.py"]
+#ENTRYPOINT ["sh","-c","echo \"Starting with PORT=$PORT\" && python main_cloud.py"]
+
+ENTRYPOINT ["sh","-c","echo \"Starting with PORT=$PORT\" && exec python -u main_cloud.py"]
+#ENTRYPOINT ["python", "main_cloud.py"]

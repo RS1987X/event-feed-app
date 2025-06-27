@@ -11,3 +11,4 @@ data/*.csv
 data/*.json
 data/**/*.db
 sa-key.json
+secrets/current_creds.bin
