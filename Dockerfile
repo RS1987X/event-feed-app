@@ -26,8 +26,12 @@ COPY . .
  #.env requirements.txt . /
 
 
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir "dvc[gdrive]" \
+# RUN pip install --upgrade pip \
+#     && pip install --no-cache-dir "dvc[gdrive]" \
+#     && pip install --no-cache-dir -r requirements.txt
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir dvc dvc-gs \
     && pip install --no-cache-dir -r requirements.txt
 
 # 3. Download SpaCy language models at build time

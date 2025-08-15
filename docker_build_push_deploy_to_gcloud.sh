@@ -19,15 +19,25 @@ docker push "gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${TAG}"
 echo "✅ gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${TAG} built & pushed successfully"
 
 # === 3) Deploy to Cloud Run ===
+# gcloud run deploy ${IMAGE_NAME} \
+#   --image "gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${TAG}" \
+#   --region europe-north1 \
+#   --platform managed \
+#   --allow-unauthenticated \
+#   --memory 1Gi \
+#   --service-account event-feed-sa@${PROJECT_ID}.iam.gserviceaccount.com \
+#   --update-secrets=/secrets/sa-key.json=EVENT_FEED_SA_KEY:latest \
+#   --update-secrets=GMAIL_OAUTH_CREDENTIALS=GMAIL_OAUTH_CREDENTIALS:latest
+#   #--set-env-vars=DVC_REMOTE_MYGDRIVE_GDRIVE_SERVICE_ACCOUNT_JSON_FILE_PATH=/secrets/sa-key.json
+
 gcloud run deploy ${IMAGE_NAME} \
   --image "gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${TAG}" \
   --region europe-north1 \
   --platform managed \
   --allow-unauthenticated \
   --memory 1Gi \
-  --service-account event-feed-sa@${PROJECT_ID}.iam.gserviceaccount.com \
-  --update-secrets=/secrets/sa-key.json=EVENT_FEED_SA_KEY:latest \
+  --service-account=event-feed-sa@${PROJECT_ID}.iam.gserviceaccount.com \
   --update-secrets=GMAIL_OAUTH_CREDENTIALS=GMAIL_OAUTH_CREDENTIALS:latest
-  #--set-env-vars=DVC_REMOTE_MYGDRIVE_GDRIVE_SERVICE_ACCOUNT_JSON_FILE_PATH=/secrets/sa-key.json
+
 
 echo "🚀 Deployed ${IMAGE_NAME} to Cloud Run"

@@ -334,7 +334,7 @@ def run_http_server():
 #import time
 #import logging
 
-def pull_with_retries(remote="mygdrive", retries=3, delay=5):
+def pull_with_retries(remote="mygcs", retries=3, delay=5):
     for attempt in range(1, retries + 1):
         try:
             logging.info(f"DVC pull attempt {attempt}/{retries}")
@@ -352,7 +352,7 @@ def pull_with_retries(remote="mygdrive", retries=3, delay=5):
 # ── DVC PUSH WITH RETRIES ──────────────────────────────────────────────────────
 
 def push_db_with_retries(
-    remote="mygdrive",
+    remote="mygcs",
     retries=3,
     delay=5
 ):
@@ -466,7 +466,7 @@ def main():
         target=periodic_push,
         kwargs={
             "interval_minutes": 30,
-            "remote": "mygdrive",
+            "remote": "mygcs",
             "retries": 3,
             "delay": 5,
         },
