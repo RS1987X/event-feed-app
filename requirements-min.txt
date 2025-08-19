@@ -1,6 +1,5 @@
 beautifulsoup4
 polars
-httplib2
 
 google-api-python-client
 google-auth
