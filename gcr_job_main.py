@@ -1,4 +1,5 @@
-import os, json, base64, datetime, logging
+import os, json, base64, logging, io
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, List, Dict
 from bs4 import BeautifulSoup
 import polars as pl
@@ -7,15 +8,19 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.cloud import secretmanager, firestore, storage
 
+
+
+
 # ────────────────────────────────────────────────────────────────────────────────
 # Config (from env)
 #PROJECT_ID   = os.environ["PROJECT_ID"]
 PROJECT_ID = os.environ.get("PROJECT_ID", "event-feed-app-463206")
 BUCKET = os.environ.get("GCS_BUCKET", "event-feed-app-data")
-GMAIL_LABEL  = os.environ.get("GMAIL_LABEL", "PressReleases")
+GMAIL_LABEL  = os.environ.get("GMAIL_LABEL", "INBOX")
 SCHEMA_VER   = 1
 PARSER_VER   = 1
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+LOOKBACK_SECS = int(os.environ.get("LOOKBACK_SECS", "600"))  # 10 minutes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,17 +58,29 @@ def gmail_creds_from_existing_secrets() -> Credentials:
 # Firestore watermark (epoch + tie-breaker id)
 
 def load_watermark() -> Tuple[int, str]:
+    """Return (last_epoch_ms, last_msg_id_at_epoch). Backward-compatible with
+    older docs that stored seconds in 'last_internal_epoch'."""
     db = firestore.Client(project=PROJECT_ID)
     doc = db.collection("ingest_state").document("gmail").get()
     if not doc.exists:
         return 0, ""
     d = doc.to_dict() or {}
-    return int(d.get("last_internal_epoch", 0)), d.get("last_msg_id_at_epoch", "")
+    # Prefer ms if present, else upgrade from seconds
+    if "last_internal_epoch_ms" in d:
+        return int(d.get("last_internal_epoch_ms", 0)), d.get("last_msg_id_at_epoch", "")
+    # fallback from seconds -> ms
+    sec = int(d.get("last_internal_epoch", 0))
+    return sec * 1000 if sec > 0 else 0, d.get("last_msg_id_at_epoch", "")
 
-def save_watermark(epoch: int, last_id: str) -> None:
+def save_watermark(epoch_ms: int, last_id: str) -> None:
     db = firestore.Client(project=PROJECT_ID)
     db.collection("ingest_state").document("gmail").set(
-        {"last_internal_epoch": int(epoch), "last_msg_id_at_epoch": last_id},
+        {
+            "last_internal_epoch_ms": int(epoch_ms),
+            "last_msg_id_at_epoch": last_id,
+            # keep old field once (optional), helps manual inspection
+            "last_internal_epoch": int(epoch_ms // 1000),
+        },
         merge=True,
     )
 
@@ -95,25 +112,33 @@ def to_text(s: str) -> str:
 
 _gcs = storage.Client()
 
-def write_bronze(msg_id: str, internal_epoch: int, eml_bytes: bytes, meta: Dict) -> None:
+def bronze_exists(msg_id: str, internal_epoch_ms: int) -> bool:
     b = _gcs.bucket(BUCKET)
-    dt = datetime.datetime.utcfromtimestamp(internal_epoch).date().isoformat()
-    base = f"bronze_raw/source=gmail/dt={dt}/msgId={msg_id}"
+    dt_str = datetime.fromtimestamp(internal_epoch_ms / 1000, tz=timezone.utc).date().isoformat()
+    path = f"bronze_raw/source=gmail/dt={dt_str}/msgId={msg_id}/message.eml"
+    return b.blob(path).exists(_gcs)
+
+def write_bronze(msg_id: str, internal_epoch_ms: int, eml_bytes: bytes, meta: Dict) -> None:
+    b = _gcs.bucket(BUCKET)
+    dt_str = datetime.fromtimestamp(internal_epoch_ms / 1000, tz=timezone.utc).date().isoformat()
+    base = f"bronze_raw/source=gmail/dt={dt_str}/msgId={msg_id}"
     b.blob(f"{base}/message.eml").upload_from_string(eml_bytes, content_type="message/rfc822")
     b.blob(f"{base}/meta.json").upload_from_string(json.dumps(meta, ensure_ascii=False), content_type="application/json")
 
 def append_silver(rows: List[Dict]) -> None:
-    if not rows: 
+    if not rows:
         return
-    # group into release_date partitions, write one file per date
     by_date: Dict[str, List[Dict]] = {}
     for r in rows:
         by_date.setdefault(r["release_date"], []).append(r)
     b = _gcs.bucket(BUCKET)
     for release_date, group in by_date.items():
         df = pl.DataFrame(group)
-        parquet_bytes = df.write_parquet()
-        part = f"silver_normalized/table=press_releases/release_date={release_date}/part-{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S')}.parquet"
+        buf = io.BytesIO()
+        df.write_parquet(buf)                # write to in-memory buffer
+        parquet_bytes = buf.getvalue()
+        part_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        part = f"silver_normalized/table=press_releases/release_date={release_date}/part-{part_ts}.parquet"
         b.blob(part).upload_from_string(parquet_bytes, content_type="application/octet-stream")
         logging.info(f"[silver] wrote {len(group)} rows → gs://{BUCKET}/{part}")
 
@@ -124,63 +149,77 @@ def run_once():
     creds = gmail_creds_from_existing_secrets()
     svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-    last_epoch, _ = load_watermark()
-    query = f"label:{GMAIL_LABEL} after:{last_epoch}"
-    logging.info(f"[gmail] query: {query}")
+    last_epoch_ms, last_id = load_watermark()
+
+    # Use a lookback window so delayed-visibility messages are still listed
+    from_epoch_secs = max(0, (last_epoch_ms // 1000) - LOOKBACK_SECS)
+    q = f"after:{datetime.fromtimestamp(from_epoch_secs, tz=timezone.utc).strftime('%Y/%m/%d')}"
+    logging.info(f"[gmail] labelIds=[{GMAIL_LABEL}] q={q!r} (watermark_ms={last_epoch_ms}, lookback={LOOKBACK_SECS}s)")
 
     # list message IDs
-    ids = []
-    page = None
+    ids, page = [], None
     while True:
-        resp = svc.users().messages().list(userId="me", q=query, pageToken=page, maxResults=500).execute()
-        ids += [m["id"] for m in resp.get("messages", [])]
+        resp = svc.users().messages().list(
+            userId="me",
+            labelIds=[GMAIL_LABEL],      # e.g. ["INBOX"]
+            q=q,
+            maxResults=500,
+            includeSpamTrash=False,
+            pageToken=page
+        ).execute()
+        ids.extend(m["id"] for m in resp.get("messages", []))
         page = resp.get("nextPageToken")
-        if not page: break
+        if not page:
+            break
 
     if not ids:
-        logging.info("[gmail] no new messages")
+        logging.info("[gmail] no candidates from list()")
         return
 
-    logging.info(f"[gmail] found {len(ids)} messages")
-
     rows = []
-    max_epoch, ids_at_max = last_epoch, []
+    max_epoch_ms, ids_at_max = last_epoch_ms, []
 
     for mid in ids:
         # Full message
         msg = svc.users().messages().get(userId="me", id=mid, format="full").execute()
+        epoch_ms = int(msg.get("internalDate", "0"))
+
+        # Strict ordering: include if (epoch_ms, id) > (last_epoch_ms, last_id)
+        should_skip = (epoch_ms < last_epoch_ms) or (epoch_ms == last_epoch_ms and mid <= last_id)
+
+        if should_skip:
+            # Within lookback? allow if not already ingested (handles delayed visibility)
+            if epoch_ms >= last_epoch_ms - (LOOKBACK_SECS * 1000):
+                if bronze_exists(mid, epoch_ms):
+                    continue  # already ingested in overlap
+                # else: fall through and ingest
+            else:
+                continue  # outside lookback and older than watermark → skip
+
         headers = {h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])}
         subject   = headers.get("subject", "")
         from_addr = headers.get("from", "")
-        epoch     = int(msg.get("internalDate", "0")) // 1000
-
-        # watermark tracking
-        if epoch > max_epoch:
-            max_epoch, ids_at_max = epoch, [mid]
-        elif epoch == max_epoch:
-            ids_at_max.append(mid)
 
         # body
         part = pick_body_part(msg["payload"])
-        data = part.get("body", {}).get("data")
+        data = (part.get("body") or {}).get("data")
         raw_body = base64.urlsafe_b64decode(data).decode(errors="ignore") if data else ""
         text_body = to_text(raw_body)
 
         # raw .eml for bronze
         raw = svc.users().messages().get(userId="me", id=mid, format="raw").execute()
         eml_bytes = base64.urlsafe_b64decode(raw["raw"])
-        write_bronze(mid, epoch, eml_bytes, {
-            "id": mid, "from": from_addr, "subject": subject, "internal_epoch": epoch
+        write_bronze(mid, epoch_ms, eml_bytes, {
+            "id": mid, "from": from_addr, "subject": subject, "internal_epoch_ms": epoch_ms
         })
 
-        # silver row
-        dt = datetime.datetime.utcfromtimestamp(epoch)
+        dt = datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc)
         rows.append({
             "press_release_id": mid,
             "company_name": "",
             "category": "unknown",
-            "release_date": dt.date().isoformat(),
-            "ingested_at": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+            "release_date": dt.date().isoformat(),                          # partition key
+            "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "title": subject,
             "full_text": text_body,
             "source": "gmail",
@@ -189,9 +228,15 @@ def run_once():
             "schema_version": SCHEMA_VER,
         })
 
+        # Track new watermark
+        if epoch_ms > max_epoch_ms:
+            max_epoch_ms, ids_at_max = epoch_ms, [mid]
+        elif epoch_ms == max_epoch_ms:
+            ids_at_max.append(mid)
+
     append_silver(rows)
-    save_watermark(max_epoch, max(ids_at_max) if ids_at_max else "")
-    logging.info(f"[done] wrote {len(rows)} releases; new watermark epoch={max_epoch}")
+    save_watermark(max_epoch_ms, max(ids_at_max) if ids_at_max else last_id)
+    logging.info(f"[done] wrote {len(rows)} releases; new watermark_ms={max_epoch_ms}")
 
 if __name__ == "__main__":
     run_once()
