@@ -709,9 +709,10 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
 
     # Use your existing epoch+id watermark to preserve strict ordering/idempotency
     #last_epoch_ms, last_id = load_watermark()
-
+    exhausted_budget = False
     for mid in candidate_ids:
         if raw_budget <= 0:
+            exhausted_budget = True
             break
         try:
             seen += 1
@@ -781,8 +782,15 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
             break
 
     # Compute next cursor: move the "before" boundary back by one window
-    next_before_ms = window_start_ms if window_start_ms > 0 else None
+    if exhausted_budget:
+        # Stay on the same window; do NOT move the cursor back yet
+        next_before_ms = before_ms
+    else:
+        # Finished this whole window → move to the next (older) window
+        next_before_ms = window_start_ms if window_start_ms > 0 else None
+    
     save_backfill_cursor(next_before_ms)
+    
     if next_before_ms is None:
         logging.info("[backfill] reached beginning (or configured start); backfill complete.")
 
