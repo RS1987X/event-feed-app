@@ -405,7 +405,17 @@ def get_label_id(svc, label_name: str) -> Optional[str]:
     return None
 
 def list_ids_between(svc, label_name: str, after_epoch: int, before_epoch: int) -> List[str]:
-    q = f'label:"{label_name}" after:{after_epoch} before:{before_epoch}'
+    # after_epoch and before_epoch are provided as seconds (unix epoch)
+    # Gmail's `after:`/`before:` with dates is strict and uses day precision
+    # (e.g. `before:2025/08/19` means strictly before midnight UTC on 2025-08-19).
+    # To capture messages in the half-open interval [after_epoch, before_epoch)
+    # when using date-only operators, convert to UTC dates and make the
+    # `before:` date one day later so you don't accidentally exclude the
+    # intended end-of-day messages.
+    after_dt = (datetime.fromtimestamp(after_epoch, tz=timezone.utc).date() + timedelta(days=1))
+    # add one day to before to make `before:` exclusive upper bound include the_day_of(before_epoch)
+    before_dt = (datetime.fromtimestamp(before_epoch, tz=timezone.utc).date() + timedelta(days=1))
+    q = f'label:"{label_name}" after:{after_dt.strftime("%Y/%m/%d")} before:{before_dt.strftime("%Y/%m/%d")}'
     ids, page = [], None
     while True:
         page_ids, page = list_page_ids(svc, q, page)
@@ -703,12 +713,9 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
         raise ValueError(f"Invalid backfill cursor epoch: {before_ms}")
 
     # Define the window [after, before)
-    # 🔧 Snap the end of this window to UTC midnight
-    window_end_ms = utc_midnight_ms(before_ms)
-     # 1-day slices aligned to UTC midnight
-    one_day_ms = 24 * 3600 * 1000
-    window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * one_day_ms)
-    
+    window_end_ms = before_ms
+    window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
+
     logging.info("[backfill] window %s → %s UTC",
                  datetime.fromtimestamp(window_start_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
                  datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"))
