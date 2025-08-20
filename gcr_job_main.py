@@ -404,6 +404,8 @@ def get_label_id(svc, label_name: str) -> Optional[str]:
             return lab.get("id")
     return None
 
+from zoneinfo import ZoneInfo
+MAILBOX_TZ = os.environ.get("MAILBOX_TZ", "Europe/Stockholm")  # e.g. "Europe/Stockholm"
 def list_ids_between(svc, label_name: str, after_epoch: int, before_epoch: int) -> List[str]:
     # after_epoch and before_epoch are provided as seconds (unix epoch)
     # Gmail's `after:`/`before:` with dates is strict and uses day precision
@@ -412,10 +414,20 @@ def list_ids_between(svc, label_name: str, after_epoch: int, before_epoch: int) 
     # when using date-only operators, convert to UTC dates and make the
     # `before:` date one day later so you don't accidentally exclude the
     # intended end-of-day messages.
-    after_dt = (datetime.fromtimestamp(after_epoch, tz=timezone.utc).date() + timedelta(days=1))
-    # add one day to before to make `before:` exclusive upper bound include the_day_of(before_epoch)
-    before_dt = (datetime.fromtimestamp(before_epoch, tz=timezone.utc).date() + timedelta(days=1))
-    q = f'label:"{label_name}" after:{after_dt.strftime("%Y/%m/%d")} before:{before_dt.strftime("%Y/%m/%d")}'
+    tz = ZoneInfo(MAILBOX_TZ)
+    
+    # Convert the UTC epochs to mailbox-local dates
+    after_dt_local  = datetime.fromtimestamp(after_epoch, tz=timezone.utc).astimezone(tz).date()
+    before_dt_local = datetime.fromtimestamp(before_epoch, tz=timezone.utc).astimezone(tz).date()
+
+
+    #Apply your empirically-validated day tweaks (defaults: +1/+1)
+    after_dt_local  = after_dt_local  + timedelta(days=1)
+    before_dt_local = before_dt_local + timedelta(days=1)
+
+
+    q = f'label:"{label_name}" after:{after_dt_local.strftime("%Y/%m/%d")} before:{before_dt_local.strftime("%Y/%m/%d")}'
+    
     ids, page = [], None
     while True:
         page_ids, page = list_page_ids(svc, q, page)
@@ -425,13 +437,13 @@ def list_ids_between(svc, label_name: str, after_epoch: int, before_epoch: int) 
         time.sleep(0.5)
     return ids
 
-def save_cooldown_max(until_dt_utc: datetime) -> None:
-    """Persist the later of the existing cooldown and the new one."""
-    cur = load_cooldown_utc()
-    if cur and cur > until_dt_utc:
-        # keep the longer existing cooldown
-        return
-    save_cooldown_utc(until_dt_utc)
+# def save_cooldown_max(until_dt_utc: datetime) -> None:
+#     """Persist the later of the existing cooldown and the new one."""
+#     cur = load_cooldown_utc()
+#     if cur and cur > until_dt_utc:
+#         # keep the longer existing cooldown
+#         return
+#     save_cooldown_utc(until_dt_utc)
 
 
 def utc_midnight_ms(ms: int) -> int:
