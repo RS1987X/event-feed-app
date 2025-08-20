@@ -423,6 +423,14 @@ def save_cooldown_max(until_dt_utc: datetime) -> None:
         return
     save_cooldown_utc(until_dt_utc)
 
+
+def utc_midnight_ms(ms: int) -> int:
+    """Return the epoch ms for 00:00:00 UTC of the day containing ms."""
+    dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    mid = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+    return int(mid.timestamp() * 1000)
+
+
 # ────────────────────────────────────────────────────────────────────────────────
 # GCS writers (bronze & silver)
 
@@ -462,6 +470,8 @@ def write_silver_unique(row: Dict) -> None:
     df.write_parquet(buf)
     blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
     logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
+
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Orchestration
@@ -693,9 +703,12 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
         raise ValueError(f"Invalid backfill cursor epoch: {before_ms}")
 
     # Define the window [after, before)
-    window_end_ms = before_ms
-    window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
-
+    # 🔧 Snap the end of this window to UTC midnight
+    window_end_ms = utc_midnight_ms(before_ms)
+     # 1-day slices aligned to UTC midnight
+    one_day_ms = 24 * 3600 * 1000
+    window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * one_day_ms)
+    
     logging.info("[backfill] window %s → %s UTC",
                  datetime.fromtimestamp(window_start_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
                  datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"))
