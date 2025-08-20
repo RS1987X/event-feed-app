@@ -415,6 +415,14 @@ def list_ids_between(svc, label_name: str, after_epoch: int, before_epoch: int) 
         time.sleep(0.5)
     return ids
 
+def save_cooldown_max(until_dt_utc: datetime) -> None:
+    """Persist the later of the existing cooldown and the new one."""
+    cur = load_cooldown_utc()
+    if cur and cur > until_dt_utc:
+        # keep the longer existing cooldown
+        return
+    save_cooldown_utc(until_dt_utc)
+
 # ────────────────────────────────────────────────────────────────────────────────
 # GCS writers (bronze & silver)
 
@@ -457,9 +465,10 @@ def write_silver_unique(row: Dict) -> None:
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Orchestration
+
 def run_once():
     try:
-        # ── Global cooldown gate (skip entire run if still cooling down) ──
+        # ── Global cooldown gate ──────────────────────────────────────────
         now_utc = datetime.now(timezone.utc)
         cd = load_cooldown_utc()
         if cd and now_utc < cd:
@@ -468,31 +477,40 @@ def run_once():
             return
         if cd and now_utc >= cd:
             clear_cooldown_utc()
-        # ───────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────
 
         # Build Gmail client after the gate
         creds = gmail_creds_from_existing_secrets()
         svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-        # Primary watermark is historyId; epoch+id watermark is for ordering/idempotency
+        # Load state
         last_epoch_ms, last_id = load_watermark()
         start_history_id = load_history_id()
+        backfill_cursor = load_backfill_cursor()   # <- NEW: always check this
 
-        # ───────────────────────────────────────────────────────────────────
-        # First run: backfill a window, then drain deltas since baseline.
-        # ───────────────────────────────────────────────────────────────────
+        # ── A) Backfill one window if there is outstanding work ──────────
+        #if backfill_cursor is not None:
+        try:
+            seen, ingested, next_before = run_backfill_once(svc, backfill_cursor)
+            logging.info("[backfill] seen=%d ingested=%d next_before_ms=%s",
+                            seen, ingested, next_before)
+        except CooldownActive:
+            # cooldown was persisted; abort run so scheduler retries later
+            raise
+        except Exception:
+            logging.exception("[backfill] failure; keeping cursor for resume")
+
+
+        # ── B) Incremental path ──────────────────────────────────────────
         if not start_history_id:
-            logging.info("[mode] first-run: backfill + (optional) handoff")
-
-            # Capture baseline historyId ONLY on first run
+            # First-time bridge only: capture baseline & drain deltas once
+            logging.info("[mode] first-run: (optional) handoff after backfill")
             try:
                 baseline_history = get_current_history_id(svc)
             except CooldownActive:
-                # Respect cooldown and abort whole run
                 raise
             except HttpError as e:
-                status = getattr(e.resp, "status", None)
-                if status == 429:
+                if getattr(e.resp, "status", None) == 429:
                     until = _parse_retry_after_abs_utc(e)
                     if until:
                         save_cooldown_max(until)
@@ -502,52 +520,28 @@ def run_once():
                 baseline_history = None
             logging.info("[init] baseline historyId=%s", baseline_history)
 
-            # 1) Backfill one window
-            try:
-                seen, ingested, next_before = run_backfill_once(svc)
-                logging.info("[backfill] seen=%d ingested=%d next_before_ms=%s",
-                             seen, ingested, next_before)
-            except CooldownActive:
-                # run_backfill_once hit a 429 → abort run
-                raise
-            except Exception:
-                logging.exception("[backfill] failure; keeping cursor for resume")
-
-            # 2) Drain deltas since baseline
             if baseline_history:
                 try:
                     ids_set, new_hist = fetch_history_ids(svc, str(baseline_history))
                     ids = sorted(ids_set)
                     processed = 0
-
                     for mid in ids:
                         try:
                             epoch_ms = fetch_meta_epoch(svc, mid)
-
-                            # Fast skips for idempotency & ordering
                             if bronze_exists(mid, epoch_ms):
                                 continue
                             if should_skip(mid, epoch_ms, last_epoch_ms, last_id,
                                            LOOKBACK_SECS, bronze_exists):
                                 continue
-
-                            # Fetch RAW only when needed (gentle pacing)
                             epoch_ms2, eml_bytes = fetch_raw_with_retry(svc, mid)
                             time.sleep(0.5)
-
                             headers, text_body = parse_from_raw(eml_bytes)
                             subject = headers.get("subject", "")
                             from_addr = headers.get("from", "")
-
-                            # Bronze
                             write_bronze(mid, epoch_ms2, eml_bytes, {
-                                "id": mid,
-                                "from": from_addr,
-                                "subject": subject,
-                                "internal_epoch_ms": epoch_ms2,
+                                "id": mid, "from": from_addr, "subject": subject,
+                                "internal_epoch_ms": epoch_ms2
                             })
-
-                            # Silver (one file per msgId → idempotent)
                             dt = datetime.fromtimestamp(epoch_ms2 / 1000, tz=timezone.utc)
                             row = {
                                 "press_release_id": mid,
@@ -563,68 +557,48 @@ def run_once():
                                 "schema_version": SCHEMA_VER,
                             }
                             write_silver_unique(row)
-
-                            # Advance epoch watermark
                             if epoch_ms2 > last_epoch_ms or (epoch_ms2 == last_epoch_ms and mid > (last_id or "")):
                                 last_epoch_ms, last_id = epoch_ms2, mid
                                 save_watermark(last_epoch_ms, last_id)
-
                             processed += 1
-
                         except HttpError as e:
-                            status = getattr(e.resp, "status", None)
-                            if status == 429:
+                            if getattr(e.resp, "status", None) == 429:
                                 until = _parse_retry_after_abs_utc(e)
                                 if until:
                                     save_cooldown_max(until)
-                                    logging.warning("[gmail] Hit 429; honoring Retry-After until %s UTC → abort run",
-                                                    until.isoformat(timespec="seconds"))
                                     raise CooldownActive(until)
                             logging.warning("[handoff] http error id=%s: %s", mid, e)
                             continue
                         except CooldownActive:
-                            # bubble up to top-level handler
                             raise
                         except Exception:
-                            logging.exception("[handoff] unexpected error for id=%s", mid)
+                            logging.exception("[handoff] unexpected for id=%s", mid)
                             continue
 
-                        # Cooldown set mid-run? Abort handoff loop.
                         cd2 = load_cooldown_utc()
                         if cd2 and datetime.now(timezone.utc) < cd2:
                             logging.warning("[gate] Cooldown set mid-run; aborting handoff loop early.")
                             break
 
                     logging.info("[handoff] processed=%d messages since baseline", processed)
-
-                    # Initialize history watermark
-                    if new_hist:
-                        save_history_id(new_hist)
-                    else:
-                        save_history_id(str(baseline_history))
+                    save_history_id(new_hist or str(baseline_history))
 
                 except CooldownActive:
-                    # history drain itself hit cooldown → abort
                     raise
                 except HttpError as e:
-                    status = getattr(e.resp, "status", None)
-                    if status == 429:
+                    if getattr(e.resp, "status", None) == 429:
                         until = _parse_retry_after_abs_utc(e)
                         if until:
                             save_cooldown_max(until)
-                            logging.warning("[handoff] 429 on history drain; until %s UTC → abort run",
-                                            until.isoformat(timespec="seconds"))
                             raise CooldownActive(until)
                     logging.warning("[handoff] history drain http error: %s", e)
                 except Exception:
                     logging.exception("[handoff] unexpected failure during history drain")
 
-            # Finished first-run path
+            # Done with first-time bridge. Next runs will be purely incremental.
             return
 
-        # ───────────────────────────────────────────────────────────────────
-        # Incremental mode via History API
-        # ───────────────────────────────────────────────────────────────────
+        # Already have a history watermark → normal incremental
         logging.info("[mode] incremental via historyId start=%s", start_history_id)
         ids_set, new_history_id = fetch_history_ids(svc, start_history_id)
         ids = sorted(ids_set)
@@ -633,26 +607,19 @@ def run_once():
         for mid in ids:
             try:
                 epoch_ms = fetch_meta_epoch(svc, mid)
-
                 if bronze_exists(mid, epoch_ms):
                     continue
                 if should_skip(mid, epoch_ms, last_epoch_ms, last_id, LOOKBACK_SECS, bronze_exists):
                     continue
-
                 epoch_ms2, eml_bytes = fetch_raw_with_retry(svc, mid)
                 time.sleep(0.5)
-
                 headers, text_body = parse_from_raw(eml_bytes)
                 subject = headers.get("subject", "")
                 from_addr = headers.get("from", "")
-
                 write_bronze(mid, epoch_ms2, eml_bytes, {
-                    "id": mid,
-                    "from": from_addr,
-                    "subject": subject,
-                    "internal_epoch_ms": epoch_ms2,
+                    "id": mid, "from": from_addr, "subject": subject,
+                    "internal_epoch_ms": epoch_ms2
                 })
-
                 dt = datetime.fromtimestamp(epoch_ms2 / 1000, tz=timezone.utc)
                 row = {
                     "press_release_id": mid,
@@ -668,32 +635,24 @@ def run_once():
                     "schema_version": SCHEMA_VER,
                 }
                 write_silver_unique(row)
-
                 if epoch_ms2 > last_epoch_ms or (epoch_ms2 == last_epoch_ms and mid > (last_id or "")):
                     last_epoch_ms, last_id = epoch_ms2, mid
                     save_watermark(last_epoch_ms, last_id)
-
                 total_processed += 1
-
             except HttpError as e:
-                status = getattr(e.resp, "status", None)
-                if status == 429:
+                if getattr(e.resp, "status", None) == 429:
                     until = _parse_retry_after_abs_utc(e)
                     if until:
                         save_cooldown_max(until)
-                        logging.warning("[gmail] Hit 429; honoring Retry-After until %s UTC → abort run",
-                                        until.isoformat(timespec="seconds"))
                         raise CooldownActive(until)
                 logging.warning("[gmail] http error id=%s: %s", mid, e)
                 continue
             except CooldownActive:
-                # bubble up to top-level
                 raise
             except Exception:
                 logging.exception("[gmail] unexpected error processing id=%s", mid)
                 continue
 
-            # Cooldown set mid-run? Abort incremental loop.
             cd2 = load_cooldown_utc()
             if cd2 and datetime.now(timezone.utc) < cd2:
                 logging.warning("[gate] Cooldown set mid-run; aborting incremental loop early.")
@@ -706,18 +665,19 @@ def run_once():
                      total_processed, last_epoch_ms, load_history_id())
 
     except CooldownActive as ce:
-        # _call_with_retry or explicit 429 handling already saved cooldown; end run immediately.
         logging.warning("[gate] Aborting run due to cooldown: %s", ce)
         return
 
 
-def run_backfill_once(svc) -> Tuple[int, int, Optional[int]]:
+def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional[int]]:
     """
     Process at most one date window, returning:
     (messages_seen, messages_ingested, next_before_epoch_ms_or_None)
     """
     # Establish or resume the "before" cursor
-    before_ms = load_backfill_cursor()
+    #before_ms = load_backfill_cursor()
+    
+
     if before_ms is None:
         # first ever backfill call: anchor to now or BACKFILL_START_ISO
         if BACKFILL_START_ISO:
@@ -725,6 +685,12 @@ def run_backfill_once(svc) -> Tuple[int, int, Optional[int]]:
             before_ms = int(start_dt.timestamp() * 1000)
         else:
             before_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        save_backfill_cursor(before_ms)
+    
+    # (Optional) guard: must be a positive epoch
+    if before_ms <= 0:
+        raise ValueError(f"Invalid backfill cursor epoch: {before_ms}")
 
     # Define the window [after, before)
     window_end_ms = before_ms
