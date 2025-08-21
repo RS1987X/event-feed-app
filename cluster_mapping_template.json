@@ -1,0 +1,234 @@
+{
+  "run_ts": "2025-08-21T152601Z",
+  "cluster_k": 38,
+  "clusters": [
+    {
+      "cluster": 2,
+      "size": 136,
+      "topic_hint": "group, our, new, has, growth, its, business, that, ceo, management, company, investor",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 19,
+      "size": 74,
+      "topic_hint": "augusti, extra, kommer, kvartalet, fran, publ, publicerad, publicerad cest, andra, bolaget, bolagets, inbjudan",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 25,
+      "size": 71,
+      "topic_hint": "rights, issue, bewi, rights issue, shares, asa, bewi asa, private placement, placement, private, enso, stora enso",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 9,
+      "size": 69,
+      "topic_hint": "programme, back, buy back, share buy, share, buy, shares, program, back programme, back program, buyback, regulation",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 10,
+      "size": 68,
+      "topic_hint": "uppgick, msek, juni, uppgick msek, resultat, januari, januari juni, delarsrapport, kvartalet, mkr, per aktie, aktie",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 13,
+      "size": 58,
+      "topic_hint": "oyj, osakkeiden, omien osakkeiden, omien, oyj omien, osakkeiden hankinta, hankinta, witted, asuntosalkku, euroa, asuntosalkku oyj, megacorp",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 4,
+      "size": 57,
+      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, year financial, report january, eur million",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 27,
+      "size": 54,
+      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, year financial, report january, eur million",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 7,
+      "size": 53,
+      "topic_hint": "sek, sek million, amounted, million, amounted sek, net, interim report, june, interim, quarter, report, operating",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 34,
+      "size": 53,
+      "topic_hint": "international plc, morgan stanley, stanley, stanley international, issued morgan, morgan, international, plc, nasdaq, warrants, issued, turbo",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 15,
+      "size": 44,
+      "topic_hint": "group, our, new, has, growth, its, business, that, ceo, management, company, investor",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 6,
+      "size": 43,
+      "topic_hint": "warrants, turbo warrants, turbo, issued nordea, bank abp, abp, nordea bank, nordea, nasdaq, warrants issued, listing turbo, issued",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 31,
+      "size": 42,
+      "topic_hint": "presentation, report, webcast, conference, interim, interim report, via, invitation, quarter, second quarter, second, you",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 20,
+      "size": 41,
+      "topic_hint": "risma, persons, risma systems, systems, transactions, persons closely, persons discharging, managerial, managerial responsibilities, responsibilities, discharging managerial, discharging",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 28,
+      "size": 37,
+      "topic_hint": "transactions, managers, managers transactions, volume, notification, transaction, corporation, corporation managers, nokia, fortum, type, fortum corporation",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 21,
+      "size": 36,
+      "topic_hint": "bond, trading, admitted trading, admitted, nasdaq, bond loan, loan issued, bonds, loan, nasdaq sto, trading nasdaq, issued",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 22,
+      "size": 35,
+      "topic_hint": "meeting, general, general meeting, board, extraordinary general, annual, annual general, extraordinary, directors, board directors, shareholders, notice",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 14,
+      "size": 34,
+      "topic_hint": "investeringsforeningen, news, halvarsrapport, invest, vedhæftet, fil, company news, vedhæftet fil, this, was, com, offentliggjort",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 24,
+      "size": 34,
+      "topic_hint": "aktier, aterkop, egna, nordea, egna aktier, bank, aterkop egna, nordea bank, bank abp, abp, transaktioner, aktier nordea",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 26,
+      "size": 29,
+      "topic_hint": "oyj, osakkeiden, omien osakkeiden, omien, oyj omien, osakkeiden hankinta, hankinta, witted, asuntosalkku, euroa, asuntosalkku oyj, megacorp",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 29,
+      "size": 28,
+      "topic_hint": "google, your, you, account, confirm your, google com, confirm, email, your registration, please confirm, alerts, alert",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 0,
+      "size": 28,
+      "topic_hint": "augusti, extra, kommer, kvartalet, fran, publ, publicerad, publicerad cest, andra, bolaget, bolagets, inbjudan",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 16,
+      "size": 25,
+      "topic_hint": "group, our, new, has, growth, its, business, that, ceo, management, company, investor",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 11,
+      "size": 22,
+      "topic_hint": "augusti, extra, kommer, kvartalet, fran, publ, publicerad, publicerad cest, andra, bolaget, bolagets, inbjudan",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 3,
+      "size": 21,
+      "topic_hint": "leverage, leverage certificates, certificates, listing leverage, certificates issued, issued nordea, bank abp, nasdaq, abp, nordea bank, certificate, nordea",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 8,
+      "size": 17,
+      "topic_hint": "you, address, confirm, activate, you subscribing, activate subscription, subscribing, subscription, address this, your mail, services activate, subscription request",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 37,
+      "size": 16,
+      "topic_hint": "investeringsforeningen, news, halvarsrapport, invest, vedhæftet, fil, company news, vedhæftet fil, this, was, com, offentliggjort",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 23,
+      "size": 15,
+      "topic_hint": "fortum, liiketoimet, johtohenkiloiden liiketoimet, johtohenkiloiden, fortum oyj, oyj, oyj johtohenkiloiden, volyymi, luonne, liiketoimen, liiketoimien, volyymi yksikkohinta",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 12,
+      "size": 14,
+      "topic_hint": "lanken, klicka, klicka lanken, valkommen, postadress, aktivera, denna postadress, denna, din, fran, prenumeration, prenumerant",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 36,
+      "size": 14,
+      "topic_hint": "better collective, collective, program, better, buyback program, buyback, share buyback, share, executed, may, meur, july nasdaq",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 1,
+      "size": 13,
+      "topic_hint": "adviser, certified adviser, certified, change certified, change, tapper, tapper partners, investment bank, carnegie investment, news, adviser tapper, dnb carnegie",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 32,
+      "size": 12,
+      "topic_hint": "investeringsforeningen, news, halvarsrapport, invest, vedhæftet, fil, company news, vedhæftet fil, this, was, com, offentliggjort",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 35,
+      "size": 12,
+      "topic_hint": "aktier, aterkop, egna, nordea, egna aktier, bank, aterkop egna, nordea bank, bank abp, abp, transaktioner, aktier nordea",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 5,
+      "size": 10,
+      "topic_hint": "kemira, kemira oyj, kemira plc, shares august, oyj, froberg, kiira, kiira froberg, acquisition own, omien, omien osakkeiden, oyj omien",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 18,
+      "size": 10,
+      "topic_hint": "oyj, osakkeiden, omien osakkeiden, omien, oyj omien, osakkeiden hankinta, hankinta, witted, asuntosalkku, euroa, asuntosalkku oyj, megacorp",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 17,
+      "size": 10,
+      "topic_hint": "rights, issue, bewi, rights issue, shares, asa, bewi asa, private placement, placement, private, enso, stora enso",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 33,
+      "size": 9,
+      "topic_hint": "leverage, leverage certificates, certificates, listing leverage, certificates issued, issued nordea, bank abp, nasdaq, abp, nordea bank, certificate, nordea",
+      "suggested_label": ""
+    },
+    {
+      "cluster": 30,
+      "size": 8,
+      "topic_hint": "lanken, klicka, klicka lanken, valkommen, postadress, aktivera, denna postadress, denna, din, fran, prenumeration, prenumerant",
+      "suggested_label": ""
+    }
+  ]
+}
