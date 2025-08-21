@@ -35,6 +35,9 @@ BACKFILL_WINDOW_DAYS = int(os.environ.get("BACKFILL_WINDOW_DAYS", "1"))  # 1-day
 BACKFILL_MAX_RAW_PER_RUN = int(os.environ.get("BACKFILL_MAX_RAW_PER_RUN", "300"))  # cap raw downloads per run
 BACKFILL_LABEL = os.environ.get("BACKFILL_LABEL", GMAIL_LABEL)  # typically "INBOX"
 
+# NEW: cap how far back we ever go (default 180 days)
+BACKFILL_MAX_AGE_DAYS = int(os.environ.get("BACKFILL_MAX_AGE_DAYS", "180"))
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
@@ -452,6 +455,12 @@ def utc_midnight_ms(ms: int) -> int:
     mid = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
     return int(mid.timestamp() * 1000)
 
+def _earliest_allowed_ms() -> int:
+    """UTC midnight N days ago: we won't backfill older than this."""
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    today_midnight = utc_midnight_ms(now_ms)
+    return max(0, today_midnight - BACKFILL_MAX_AGE_DAYS * 24 * 3600 * 1000)
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # GCS writers (bronze & silver)
@@ -724,13 +733,18 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
     if before_ms <= 0:
         raise ValueError(f"Invalid backfill cursor epoch: {before_ms}")
 
+    # NEW: compute the earliest time we allow backfilling to reach
+    earliest_ms = _earliest_allowed_ms()
+    window_start_ms = max(earliest_ms, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
+
     # Define the window [after, before)
     window_end_ms = before_ms
     window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
 
     logging.info("[backfill] window %s → %s UTC",
                  datetime.fromtimestamp(window_start_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
-                 datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"))
+                 datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
+                 datetime.fromtimestamp(earliest_ms/1000, tz=timezone.utc).date().isoformat())
 
     # Collect candidate IDs in this window (by label)
     candidate_ids = list_ids_between(svc, BACKFILL_LABEL, window_start_ms//1000, window_end_ms//1000)
@@ -813,13 +827,19 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
             logging.warning("[gate] Cooldown set mid-run; aborting backfill loop early.")
             break
 
-    # Compute next cursor: move the "before" boundary back by one window
+    # Decide next cursor
     if exhausted_budget:
-        # Stay on the same window; do NOT move the cursor back yet
-        next_before_ms = before_ms
+        next_before_ms = before_ms  # same window; try again next run
     else:
-        # Finished this whole window → move to the next (older) window
-        next_before_ms = window_start_ms if window_start_ms > 0 else None
+        # Move to the next (older) window unless we'd cross the cap
+        candidate_next = window_start_ms
+        if candidate_next <= earliest_ms:
+            # Hit max lookback → stop backfill (reset to today on next run)
+            next_before_ms = None
+            logging.info("[backfill] reached max lookback (%d days). Stopping backfill (cursor cleared).",
+                         BACKFILL_MAX_AGE_DAYS)
+        else:
+            next_before_ms = candidate_next
     
     save_backfill_cursor(next_before_ms)
     

@@ -50,7 +50,7 @@ dvc-studio-client==0.21.0
 dvc-task==0.40.2
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
 entrypoints==0.4
--e git+ssh://git@github.com/RS1987X/event-feed-app.git@2047c6e0cfab90329771e59007a11e3080e74357#egg=event_feed_app
+-e git+ssh://git@github.com/RS1987X/event-feed-app.git@67579a9971b8d299a35936e6211251fe0d1c7eae#egg=event_feed_app
 feedparser==6.0.11
 filelock==3.18.0
 Flask==3.1.1
@@ -107,6 +107,7 @@ oauthlib==3.2.2
 omegaconf==2.3.0
 orjson==3.10.18
 packaging==25.0
+pandas==2.3.1
 pathspec==0.12.1
 pillow==11.2.1
 platformdirs==4.3.8
@@ -118,6 +119,7 @@ propcache==0.3.2
 proto-plus==1.26.1
 protobuf==6.31.1
 psutil==7.0.0
+pyarrow==21.0.0
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.22
@@ -136,6 +138,7 @@ PyQt6_sip==13.10.2
 pytest==8.4.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
+pytz==2025.2
 PyYAML==6.0.2
 RapidFuzz==3.13.0
 regex==2024.11.6
