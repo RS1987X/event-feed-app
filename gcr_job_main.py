@@ -36,7 +36,7 @@ BACKFILL_MAX_RAW_PER_RUN = int(os.environ.get("BACKFILL_MAX_RAW_PER_RUN", "300")
 BACKFILL_LABEL = os.environ.get("BACKFILL_LABEL", GMAIL_LABEL)  # typically "INBOX"
 
 # NEW: cap how far back we ever go (default 180 days)
-BACKFILL_MAX_AGE_DAYS = int(os.environ.get("BACKFILL_MAX_AGE_DAYS", "180"))
+BACKFILL_MAX_AGE_DAYS = int(os.environ.get("BACKFILL_MAX_AGE_DAYS", "90"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -735,16 +735,16 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
 
     # NEW: compute the earliest time we allow backfilling to reach
     earliest_ms = _earliest_allowed_ms()
+    window_end_ms = before_ms
     window_start_ms = max(earliest_ms, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
 
     # Define the window [after, before)
-    window_end_ms = before_ms
-    window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
+    
+    #window_start_ms = max(0, window_end_ms - BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000)
 
     logging.info("[backfill] window %s → %s UTC",
                  datetime.fromtimestamp(window_start_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
-                 datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"),
-                 datetime.fromtimestamp(earliest_ms/1000, tz=timezone.utc).date().isoformat())
+                 datetime.fromtimestamp(window_end_ms/1000, tz=timezone.utc).isoformat(timespec="seconds"))
 
     # Collect candidate IDs in this window (by label)
     candidate_ids = list_ids_between(svc, BACKFILL_LABEL, window_start_ms//1000, window_end_ms//1000)
