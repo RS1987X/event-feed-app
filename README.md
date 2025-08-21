@@ -58,7 +58,7 @@ It is designed as a **production-ready ingestion pipeline** with incremental syn
     "internal_epoch_ms": 1724137200000
   }
 
-###Silver layer
+### Silver layer
 
 | Column             | Type     | Description                   |
 | ------------------ | -------- | ----------------------------- |
@@ -73,7 +73,7 @@ It is designed as a **production-ready ingestion pipeline** with incremental syn
 | parser\_version    | int      | Parser version tag            |
 | schema\_version    | int      | Schema version tag            |
 
-###Configuration 
+### Configuration 
 
 | Variable                   | Default               | Description                                    |
 | -------------------------- | --------------------- | ---------------------------------------------- |
