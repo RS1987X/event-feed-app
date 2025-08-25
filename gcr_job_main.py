@@ -485,6 +485,28 @@ def silver_exists(msg_id: str, release_date: str) -> bool:
     path = f"silver_normalized/table=press_releases/release_date={release_date}/msgId={msg_id}.parquet"
     return b.blob(path).exists(_gcs)
 
+# def write_silver_unique(row: Dict) -> None:
+#     # Path includes msgId -> idempotent
+#     msg_id = row["press_release_id"]
+#     release_date = row["release_date"]
+#     b = _gcs.bucket(BUCKET)
+#     path = f"silver_normalized/table=press_releases/release_date={release_date}/msgId={msg_id}.parquet"
+#     blob = b.blob(path)
+#     if blob.exists(_gcs):
+#         return  # already written
+    
+#     # write a single-row parquet
+#     df = pl.DataFrame([row])
+#     buf = io.BytesIO()
+#     df.write_parquet(buf)
+#     blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
+#     logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
+
+
+# add imports at top
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 def write_silver_unique(row: Dict) -> None:
     # Path includes msgId -> idempotent
     msg_id = row["press_release_id"]
@@ -495,15 +517,49 @@ def write_silver_unique(row: Dict) -> None:
     if blob.exists(_gcs):
         return  # already written
 
-    # write a single-row parquet
-    df = pl.DataFrame([row])
+    # 1) Explicit Arrow schema (lock types; keep strings as pa.string())
+    schema = pa.schema([
+        ("press_release_id", pa.string()),
+        ("company_name",     pa.string()),
+        ("category",         pa.string()),
+        ("release_date",     pa.string()),     # <-- enforce utf8, not large_utf8
+        ("ingested_at",      pa.string()),     # you currently store ISO8601 strings; keep that
+        ("title",            pa.string()),
+        ("full_text",        pa.string()),
+        ("source",           pa.string()),
+        ("source_url",       pa.string()),
+        ("parser_version",   pa.int32()),
+        ("schema_version",   pa.int32()),
+    ])
+
+    # 2) Build a single-row table under that schema
+    #    (ensure missing keys become None so types still align)
+    data = {name: [row.get(name)] for name in schema.names}
+    table = pa.Table.from_pydict(data, schema=schema)
+
+    # 3) Write parquet with pyarrow (consistent across runs)
     buf = io.BytesIO()
-    df.write_parquet(buf)
+    pq.write_table(
+        table,
+        buf,
+        # optional tuning:
+        compression="zstd",
+        version="2.6",          # keep modern metadata; OK to omit if unsure
+        use_dictionary=False,   # text often better without dicts for single-row files
+    )
     blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
     logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
 
 
+from email.utils import parseaddr
 
+def extract_company_name(headers: dict) -> str:
+    """Extract company name from your parsed headers dict."""
+    from_header = headers.get("from", "")
+    if not from_header:
+        return ""
+    display_name, email_addr = parseaddr(from_header)
+    return (display_name or "").strip() or email_addr
 # ────────────────────────────────────────────────────────────────────────────────
 # Orchestration
 
@@ -586,7 +642,7 @@ def run_once():
                             dt = datetime.fromtimestamp(epoch_ms2 / 1000, tz=timezone.utc)
                             row = {
                                 "press_release_id": mid,
-                                "company_name": "",
+                                "company_name": extract_company_name(headers),
                                 "category": "unknown",
                                 "release_date": dt.date().isoformat(),
                                 "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -664,7 +720,7 @@ def run_once():
                 dt = datetime.fromtimestamp(epoch_ms2 / 1000, tz=timezone.utc)
                 row = {
                     "press_release_id": mid,
-                    "company_name": "",
+                    "company_name": extract_company_name(headers),
                     "category": "unknown",
                     "release_date": dt.date().isoformat(),
                     "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
