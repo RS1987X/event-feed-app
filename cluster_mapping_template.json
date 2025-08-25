@@ -1,234 +1,44 @@
 {
-  "run_ts": "2025-08-22T090331Z",
+  "run_ts": "2025-08-25T000000Z",
   "cluster_k": 38,
   "clusters": [
-    {
-      "cluster": 34,
-      "size": 151,
-      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, report january, interim, revenue",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 33,
-      "size": 92,
-      "topic_hint": "aktier, aterkop, egna, egna aktier, aterkop egna, transaktioner, augusti, extra, kod, aterkop aktier, aktier nordea, aterkopta",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 8,
-      "size": 78,
-      "topic_hint": "corporation, alma, vaisala, share repurchase, alma media, share, repurchase, corporation share, media, media corporation, vaisala corporation, shares",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 11,
-      "size": 66,
-      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, report january, interim, revenue",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 2,
-      "size": 64,
-      "topic_hint": "nordea, nordea bank, bank abp, abp, bank, issued nordea, abp listing, abp notice, abp published, abp effect, repurchase own, abp repurchase",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 7,
-      "size": 62,
-      "topic_hint": "international plc, stanley, stanley international, issued morgan, morgan stanley, morgan, international, plc, plc published, plc notice, plc effect, plc listing",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 10,
-      "size": 56,
-      "topic_hint": "uppgick, mkr, juni, delarsrapport, januari, januari juni, tsek, uppgick mkr, resultat, kvartalet, halvarsrapport, uppgick tsek",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 19,
-      "size": 53,
-      "topic_hint": "programme, back, buy back, share buy, shares, share, buy, program, back program, back programme, regulation, transactions",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 37,
-      "size": 52,
-      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, report january, interim, revenue",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 14,
-      "size": 46,
-      "topic_hint": "oyj, puolivuosikatsaus, euroa, oli, oyj puolivuosikatsaus, liikevaihto, tammi, miljoonaa, group, miljoonaa euroa, group oyj, kesakuu",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 3,
-      "size": 45,
-      "topic_hint": "report, year, half, half year, financial, june, january, january june, financial report, report january, interim, revenue",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 36,
-      "size": 44,
-      "topic_hint": "osakkeiden, omien osakkeiden, omien, oyj, osakkeiden hankinta, oyj omien, hankinta, asuntosalkku, asuntosalkku oyj, witted, alma, fiskars oyj",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 0,
-      "size": 43,
-      "topic_hint": "msek, uppgick msek, uppgick, juni, kvartalet, resultat, delarsrapport, januari juni, januari, andra, msek resultat, andra kvartalet",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 1,
-      "size": 43,
-      "topic_hint": "investeringsforeningen, halvarsrapport, news, invest, vedhæftet, fil, vedhæftet fil, company news, this, was, invest halvarsrapport, com",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 17,
-      "size": 42,
-      "topic_hint": "presentation, report, webcast, via, interim, conference, interim report, invitation, you, https, quarter, questions",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 16,
-      "size": 39,
-      "topic_hint": "sek, sek million, amounted, million, amounted sek, net, june, interim report, interim, quarter, operating, profit",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 22,
-      "size": 38,
-      "topic_hint": "transactions, managers, managers transactions, volume, notification, transaction, corporation, nokia, corporation managers, fortum, type, plc managers",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 26,
-      "size": 37,
-      "topic_hint": "bond, trading, bonds, admitted trading, admitted, nasdaq, bond loan, loan issued, loan, nasdaq sto, trading nasdaq, issued",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 30,
-      "size": 37,
-      "topic_hint": "investeringsforeningen, halvarsrapport, news, invest, vedhæftet, fil, vedhæftet fil, company news, this, was, invest halvarsrapport, com",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 29,
-      "size": 34,
-      "topic_hint": "meeting, general, general meeting, board, annual, annual general, extraordinary general, extraordinary, directors, board directors, shareholders, voting",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 23,
-      "size": 33,
-      "topic_hint": "your, you, google, confirm, your request, alert, service, account, confirm your, request, alerts, your registration",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 9,
-      "size": 33,
-      "topic_hint": "meeting, general, general meeting, board, annual, annual general, extraordinary general, extraordinary, directors, board directors, shareholders, voting",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 4,
-      "size": 32,
-      "topic_hint": "meeting, general, general meeting, board, annual, annual general, extraordinary general, extraordinary, directors, board directors, shareholders, voting",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 6,
-      "size": 27,
-      "topic_hint": "risma, persons, risma systems, systems, transactions, persons closely, persons discharging, managerial, managerial responsibilities, discharging, responsibilities, discharging managerial",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 15,
-      "size": 26,
-      "topic_hint": "uppgick, mkr, juni, delarsrapport, januari, januari juni, tsek, uppgick mkr, resultat, kvartalet, halvarsrapport, uppgick tsek",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 12,
-      "size": 25,
-      "topic_hint": "oyj, puolivuosikatsaus, euroa, oli, oyj puolivuosikatsaus, liikevaihto, tammi, miljoonaa, group, miljoonaa euroa, group oyj, kesakuu",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 32,
-      "size": 24,
-      "topic_hint": "sek, sek million, amounted, million, amounted sek, net, june, interim report, interim, quarter, operating, profit",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 31,
-      "size": 24,
-      "topic_hint": "presentation, report, webcast, via, interim, conference, interim report, invitation, you, https, quarter, questions",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 21,
-      "size": 22,
-      "topic_hint": "lanken, klicka, klicka lanken, valkommen, postadress, aktivera, fran, denna postadress, denna, din, prenumeration, prenumerant",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 13,
-      "size": 21,
-      "topic_hint": "investeringsforeningen, halvarsrapport, news, invest, vedhæftet, fil, vedhæftet fil, company news, this, was, invest halvarsrapport, com",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 18,
-      "size": 21,
-      "topic_hint": "uppgick, mkr, juni, delarsrapport, januari, januari juni, tsek, uppgick mkr, resultat, kvartalet, halvarsrapport, uppgick tsek",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 5,
-      "size": 18,
-      "topic_hint": "kemira, kemira oyj, kemira plc, oyj, shares august, kiira froberg, kiira, froberg, acquisition own, oyj acquisition, shares, own shares",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 28,
-      "size": 15,
-      "topic_hint": "your, you, google, confirm, your request, alert, service, account, confirm your, request, alerts, your registration",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 27,
-      "size": 15,
-      "topic_hint": "fortum, liiketoimet, johtohenkiloiden liiketoimet, johtohenkiloiden, fortum oyj, oyj, oyj johtohenkiloiden, volyymi, luonne, liiketoimen, liiketoimien, volyymi yksikkohinta",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 35,
-      "size": 13,
-      "topic_hint": "adviser, certified adviser, certified, change certified, change, tapper partners, tapper, news, investment bank, carnegie investment, dnb, dnb carnegie",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 20,
-      "size": 12,
-      "topic_hint": "carlsberg, carlsberg shares, acquisition carlsberg, disclosure acquisition, notification public, public disclosure, supervisory board, shares, disclosure, shares member, member supervisory, supervisory",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 24,
-      "size": 12,
-      "topic_hint": "aktier, aterkop, egna, egna aktier, aterkop egna, transaktioner, augusti, extra, kod, aterkop aktier, aktier nordea, aterkopta",
-      "suggested_label": ""
-    },
-    {
-      "cluster": 25,
-      "size": 10,
-      "topic_hint": "bond, trading, bonds, admitted trading, admitted, nasdaq, bond loan, loan issued, loan, nasdaq sto, trading nasdaq, issued",
-      "suggested_label": ""
-    }
+    {"cluster": 0,  "label": "Interim/Annual report"},
+    {"cluster": 1,  "label": "Interim/Annual report"},
+    {"cluster": 2,  "label": "Share buyback transactions"},
+    {"cluster": 3,  "label": "IR presentation/Webcast"},
+    {"cluster": 4,  "label": "Market notice"},
+    {"cluster": 5,  "label": "IR presentation/Webcast"},
+    {"cluster": 6,  "label": "Admission to trading (Derivative)"},
+    {"cluster": 7,  "label": "Noise/System"},
+    {"cluster": 8,  "label": "Leadership change"},
+    {"cluster": 9,  "label": "Interim/Annual report"},
+    {"cluster": 10, "label": "Admission to trading (Derivative)"},
+    {"cluster": 11, "label": "Monthly KPIs/Statistics"},
+    {"cluster": 12, "label": "Interim/Annual report"},
+    {"cluster": 13, "label": "Managers’ transactions"},
+    {"cluster": 14, "label": "Clinical/Regulatory update"},
+    {"cluster": 15, "label": "Other corporate news"},
+    {"cluster": 16, "label": "Certified Adviser change"},
+    {"cluster": 17, "label": "Share buyback transactions"},
+    {"cluster": 18, "label": "Admission to trading (Derivative)"},
+    {"cluster": 19, "label": "M&A/Divestment"},
+    {"cluster": 20, "label": "NAV/AUM report"},
+    {"cluster": 21, "label": "EGM communiqué"},
+    {"cluster": 22, "label": "Interim/Annual report"},
+    {"cluster": 23, "label": "Order/Contract award"},
+    {"cluster": 24, "label": "Noise/System"},
+    {"cluster": 25, "label": "Interim/Annual report"},
+    {"cluster": 26, "label": "Admission to trading (Bond)"},
+    {"cluster": 27, "label": "Interim/Annual report"},
+    {"cluster": 28, "label": "Interim/Annual report"},
+    {"cluster": 29, "label": "AGM notice"},
+    {"cluster": 30, "label": "Other corporate news"},
+    {"cluster": 31, "label": "Noise/System"},
+    {"cluster": 32, "label": "Share buyback transactions"},
+    {"cluster": 33, "label": "Interim/Annual report"},
+    {"cluster": 34, "label": "Share buyback transactions"},
+    {"cluster": 35, "label": "Share buyback transactions"},
+    {"cluster": 36, "label": "Interim/Annual report"},
+    {"cluster": 37, "label": "Rights issue announcement"}
   ]
 }

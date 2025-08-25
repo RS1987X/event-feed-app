@@ -45,9 +45,26 @@ OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV = "cluster_assignments_with_mapping.csv"  # onl
 # Clustering knobs
 ALLOWED_LANG = {"en", "sv", "da", "fi"}
 PARTITIONING = ds.partitioning(
-    schema=pa.schema([pa.field("release_date", pa.large_string())]),
+    schema=pa.schema([pa.field("release_date", pa.string())]),
     flavor="hive",
 )
+
+
+# Add a canonical schema (match your silver schema)
+CANONICAL_SCHEMA = pa.schema([
+    ("press_release_id", pa.string()),
+    ("company_name",     pa.string()),
+    ("category",         pa.string()),
+    ("release_date",     pa.string()),
+    ("ingested_at",      pa.string()),
+    ("title",            pa.string()),
+    ("full_text",        pa.string()),
+    ("source",           pa.string()),
+    ("source_url",       pa.string()),
+    ("parser_version",   pa.int32()),
+    ("schema_version",   pa.int32()),
+])
+
 READ_COLS = ["release_date", "company_name", "title", "full_text", "category"]
 CANDIDATE_K = list(range(3, 41, 5))  # 10,15,...,40
 LEAD_CHARS = 1200
@@ -240,12 +257,14 @@ def main():
         filesystem=fs,
         format="parquet",
         partitioning=PARTITIONING,
+        schema=CANONICAL_SCHEMA,
     )
 
     available_cols = [f.name for f in dataset.schema]
     cols = [c for c in READ_COLS if c in available_cols]
     table = dataset.to_table(columns=cols)
-    df = table.to_pandas()
+
+    df = table.to_pandas(types_mapper=pd.ArrowDtype)
 
     # Basic hygiene
     for c in ["title", "full_text"]:
@@ -388,7 +407,11 @@ def main():
 
     # --- Dump a small sample of assignments for manual review ---
     show_cols = [c for c in ["release_date", "company_name", "title", "lang", "cluster", "cluster_k", "category"] if c in df.columns]
-    assign_sample = df.sample(min(2000, len(df)), random_state=42)[show_cols]
+    
+    assign_sample = (df.sample(min(2000, len(df)), random_state=42)[show_cols]
+        .sort_values(["cluster"])
+        .reset_index(drop=True)
+    )
     assign_sample.to_csv(OUT_LOCAL_ASSIGNMENTS_SAMPLE_CSV, index=False)
     print(f"Wrote {OUT_LOCAL_ASSIGNMENTS_SAMPLE_CSV}")
 
@@ -439,16 +462,16 @@ def main():
     write_local_to_gcs(fs, OUT_LOCAL_SUMMARY_CSV,            f"{dst_dir}/{OUT_LOCAL_SUMMARY_CSV}")
     write_local_to_gcs(fs, OUT_LOCAL_ASSIGNMENTS_SAMPLE_CSV, f"{dst_dir}/{OUT_LOCAL_ASSIGNMENTS_SAMPLE_CSV}")
     write_local_to_gcs(fs, OUT_LOCAL_ALL_ASSIGNMENTS_CSV,    f"{dst_dir}/{OUT_LOCAL_ALL_ASSIGNMENTS_CSV}")
-    write_local_to_gcs(fs, OUT_LOCAL_MAPPING_TEMPLATE_JSON,  f"{dst_dir}/{OUT_LOCAL_MAPPING_TEMPLATE_JSON}")
-    if os.path.exists(OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV):
-        write_local_to_gcs(fs, OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV, f"{dst_dir}/{OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV}")
+    #write_local_to_gcs(fs, OUT_LOCAL_MAPPING_TEMPLATE_JSON,  f"{dst_dir}/{OUT_LOCAL_MAPPING_TEMPLATE_JSON}")
+    #if os.path.exists(OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV):
+    #    write_local_to_gcs(fs, OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV, f"{dst_dir}/{OUT_LOCAL_ASSIGNMENTS_MAPPED_CSV}")
 
     print(f"\nAll artifacts saved locally and to {dst_dir}")
 
-    print("\nNext steps:")
-    print(f"- Edit {dst_dir}/cluster_mapping_template.json (or create your own mapping JSON).")
-    print("- Re-run with MAPPING_GCS_PATH pointing to that mapping to produce a pre-labeled CSV for review.")
-    print("- Use that reviewed CSV to train a supervised classifier (stage 2).")
+    # print("\nNext steps:")
+    # print(f"- Edit {dst_dir}/cluster_mapping_template.json (or create your own mapping JSON).")
+    # print("- Re-run with MAPPING_GCS_PATH pointing to that mapping to produce a pre-labeled CSV for review.")
+    # print("- Use that reviewed CSV to train a supervised classifier (stage 2).")
 
 
 if __name__ == "__main__":

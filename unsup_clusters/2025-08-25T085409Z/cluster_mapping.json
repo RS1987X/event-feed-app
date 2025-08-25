@@ -1,0 +1,159 @@
+{
+  "run_ts": "2025-08-25T121637Z",
+  "taxonomy_version": "1.0",
+  "cluster_k": 38,
+  "clusters": [
+    {
+      "cluster": 19,
+      "label": "M&A/Divestment"
+    },
+    {
+      "cluster": 37,
+      "label": "Rights issue announcement"
+    },
+    {
+      "cluster": 18,
+      "label": "Admission to trading (Derivative)"
+    },
+    {
+      "cluster": 34,
+      "label": "Share buyback transactions"
+    },
+    {
+      "cluster": 16,
+      "label": "Certified Adviser change"
+    },
+    {
+      "cluster": 13,
+      "label": "Managers’ transactions"
+    },
+    {
+      "cluster": 23,
+      "label": "Order/Contract award"
+    },
+    {
+      "cluster": 15,
+      "label": "Other corporate news"
+    },
+    {
+      "cluster": 22,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 17,
+      "label": "Share buyback transactions"
+    },
+    {
+      "cluster": 9,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 21,
+      "label": "EGM communiqué"
+    },
+    {
+      "cluster": 12,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 5,
+      "label": "IR presentation/Webcast"
+    },
+    {
+      "cluster": 29,
+      "label": "AGM notice"
+    },
+    {
+      "cluster": 28,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 27,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 10,
+      "label": "Admission to trading (Derivative)"
+    },
+    {
+      "cluster": 14,
+      "label": "Clinical/Regulatory update"
+    },
+    {
+      "cluster": 33,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 2,
+      "label": "Share buyback transactions"
+    },
+    {
+      "cluster": 25,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 20,
+      "label": "NAV/AUM report"
+    },
+    {
+      "cluster": 8,
+      "label": "Leadership change"
+    },
+    {
+      "cluster": 0,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 1,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 30,
+      "label": "Other corporate news"
+    },
+    {
+      "cluster": 36,
+      "label": "Interim/Annual report"
+    },
+    {
+      "cluster": 7,
+      "label": "Noise/System"
+    },
+    {
+      "cluster": 3,
+      "label": "IR presentation/Webcast"
+    },
+    {
+      "cluster": 32,
+      "label": "Share buyback transactions"
+    },
+    {
+      "cluster": 6,
+      "label": "Admission to trading (Derivative)"
+    },
+    {
+      "cluster": 4,
+      "label": "Market notice"
+    },
+    {
+      "cluster": 26,
+      "label": "Admission to trading (Bond)"
+    },
+    {
+      "cluster": 31,
+      "label": "Noise/System"
+    },
+    {
+      "cluster": 35,
+      "label": "Share buyback transactions"
+    },
+    {
+      "cluster": 11,
+      "label": "Monthly KPIs/Statistics"
+    },
+    {
+      "cluster": 24,
+      "label": "Noise/System"
+    }
+  ]
+}
