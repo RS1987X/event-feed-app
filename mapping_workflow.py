@@ -1,27 +1,30 @@
+'''
 #!/usr/bin/env python3
 # mapping_workflow.py
 #
 # pip install pandas gcsfs
 #
-# Usage:
-#   # A) Create the review sheet (from your clustering output)
-#   python mapping_workflow.py make-review \
-#     --clusters unsup_clusters/2025-08-25T1145Z/cluster_summaries.csv \
-#     --out      unsup_clusters/2025-08-25T1145Z/cluster_mapping_review.csv
-#
-#   # (Human edits proposed_label / confidence / notes)
-#
-#   # B) Convert the reviewed CSV to JSON (what your pipeline consumes)
-#   python mapping_workflow.py to-json \
-#     --review unsup_clusters/2025-08-25T1145Z/cluster_mapping_review.csv \
-#     --out    unsup_clusters/2025-08-25T1145Z/cluster_mapping.json \
-#     --taxonomy-version 1.0 \
-#     --k 38
-#
-#   # C) Upload JSON to GCS
-#   python mapping_workflow.py upload \
-#     --local unsup_clusters/2025-08-25T1145Z/cluster_mapping.json \
-#     --gcs   gs://event-feed-app-data/mappings/cluster_mapping.json
+
+  Usage:
+  # A) Create the review sheet (from your clustering output)
+  python mapping_workflow.py make-review \
+    --clusters unsup_clusters/2025-08-25T1145Z/cluster_summaries.csv \
+    --out      unsup_clusters/2025-08-25T1145Z/cluster_mapping_review.csv
+
+  # (Human edits proposed_label / confidence / notes)
+
+  # B) Convert the reviewed CSV to JSON (what your pipeline consumes)
+  python mapping_workflow.py to-json \
+    --review unsup_clusters/2025-08-25T1145Z/cluster_mapping_review.csv \
+    --out    unsup_clusters/2025-08-25T1145Z/cluster_mapping.json \
+    --taxonomy-version 1.0 \
+    --k 38
+
+  # C) Upload JSON to GCS
+  python mapping_workflow.py upload \
+    --local unsup_clusters/2025-08-25T1145Z/cluster_mapping.json \
+    --gcs   gs://event-feed-app-data/mappings/cluster_mapping.json
+'''
 
 import argparse
 import json

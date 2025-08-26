@@ -19,6 +19,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD, NMF
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_samples
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 
@@ -66,29 +67,70 @@ CANONICAL_SCHEMA = pa.schema([
 ])
 
 READ_COLS = ["release_date", "company_name", "title", "full_text", "category"]
-CANDIDATE_K = list(range(3, 41, 5))  # 10,15,...,40
+CANDIDATE_K = list(range(3, 101, 5))  # 10,15,...,40
 LEAD_CHARS = 1200
 USE_NMF_HINTS = True
 NMF_MAX_COMPONENTS = 30
 
-
+from nltk.corpus import stopwords
+import nltk
+nltk.download("stopwords")
 # define stopwords
 
-# 2) Stopword dictionaries (seed lists; extend as you see patterns)
-STOP_EN = {
-    # base English
-    "the","and","of","in","for","to","a","on","as","with","by","from","at","is","are","be","will",
+
+STOP_EN = set(stopwords.words("english"))
+STOP_SV = set(stopwords.words("swedish"))
+STOP_DA = set(stopwords.words("danish"))
+STOP_FI = set(stopwords.words("finnish"))
+
+# --- Build company/org stopwords from your data ---
+def make_company_stopwords(df: pd.DataFrame) -> set[str]:
+    org_suffixes = {
+        "ab","abp","oyj","asa","a/s","plc","as","oy","hf","hf.","aps","publ",
+        "group","company","corporation","corp","holding","koncern","aktiebolag","aktieselskab"
+    }
+    tokens = set()
+    if "company_name" in df.columns:
+        for name in df["company_name"].fillna("").astype(str):
+            for t in TOKEN_RE.findall(name.lower()):
+                if len(t) > 2:
+                    tokens.add(t)
+    # Keep only tokens that look like org identifiers or frequent brand tokens
+    # (the simple version: include all tokens from company_name + suffixes)
+    return tokens | org_suffixes
+
+
+MONTHS = {
+    # English
+    "january","february","march","april","may","june","july","august",
+    "september","october","november","december",
+    # Swedish
+    "januari","februari","mars","april","maj","juni","juli","augusti",
+    "september","oktober","november","december",
+    # Danish/Norwegian
+    "januar","februar","marts","april","maj","juni","juli","august",
+    "september","oktober","november","december",
+    # Finnish
+    "tammikuu","helmikuu","maaliskuu","huhtikuu","toukokuu","kesäkuu",
+    "heinäkuu","elokuu","syyskuu","lokakuu","marraskuu","joulukuu",
 }
-STOP_SV = {
-    "och","att","av","på","med","som","är","en","ett","till","för","den","det","har","vi","i",
-}
-STOP_DA = {
-    "og","at","af","på","med","som","er","en","et","til","for","den","det","har","vi","i",
-    "as","a/s",
-}
-STOP_FI = {
-    "ja","että","on","se","ne","tämä","nämä","joka","joka","tässä","myös","kun","kanssa","että",
-}
+
+
+# # 2) Stopword dictionaries (seed lists; extend as you see patterns)
+# STOP_EN = {
+#     # base English
+#     "the","and","of","in","for","to","a","on","as","with","by","from","at","is","are","be","will",
+# }
+# STOP_SV = {
+#     "och","att","av","på","med","som","är","en","ett","till","för","den","det","har","vi","i",
+# }
+# STOP_DA = {
+#     "og","at","af","på","med","som","er","en","et","til","for","den","det","har","vi","i",
+#     "as","a/s",
+# }
+# STOP_FI = {
+#     "ja","että","on","se","ne","tämä","nämä","joka","joka","tässä","myös","kun","kanssa","että",
+# }
 
 LANG2STOP = {
     "en": STOP_EN,
@@ -99,6 +141,27 @@ LANG2STOP = {
 
 # 3) Tokenizer / cleaner
 TOKEN_RE = re.compile(r"[A-Za-zÅÄÖåäöÆØæøÐÞðþÁÉÍÓÚÝáéíóúýÄÖäöÜüÅåØøÆæ]+")  # letters in nordic langs
+
+# Put near your other utils
+PHRASES = [
+    r"rights\s+issue", r"share\s+buy[-\s]*back", r"general\s+meeting",
+    r"extra\s+bolagsstämma", r"kommuniké\s+från\s+extra\s+bolagsstämma",
+    r"delårsrapport", r"halvårsrapport", r"puolivuosikatsaus",
+    r"certified\s+adviser", r"managers[’']?\s+transactions",
+    r"admitted\s+to\s+trading", r"bond\s+loan", r"mini\s+futures",
+    r"turbo\s+warrants", r"half[-\s]*year\s+report", r"interim\s+report",
+    r"notice\s+of\s+annual\s+general\s+meeting", r"annual\s+general\s+meeting",
+]
+
+PHRASE_PATTERNS = [re.compile(p, re.I) for p in PHRASES]
+
+def protect_phrases(txt: str) -> str:
+    if not isinstance(txt, str) or not txt:
+        return ""
+    s = txt
+    for pat in PHRASE_PATTERNS:
+        s = pat.sub(lambda m: m.group(0).replace(" ", "_").replace("-", "_"), s)
+    return s
 
 
 from bs4 import BeautifulSoup
@@ -229,16 +292,19 @@ def clean_and_tokenize(text: str) -> list[str]:
     text = text.lower()
     return TOKEN_RE.findall(text)
 
-def preprocess_docs_word_ngrams(df, text_series, lang_series):
+def preprocess_docs_word_ngrams(df, text_series, lang_series, company_stop:set):
     """
     For each doc, remove stopwords for its detected language + domain stopwords.
     Returns a list of cleaned strings to feed into word-level TF-IDF.
     """
     out = []
     for txt, lang in zip(text_series, lang_series):
-        toks = clean_and_tokenize(txt)
+        txt = protect_phrases(txt)
+        toks = clean_and_tokenize(txt.lower())
         #stop = set(STOP_DOMAIN)
         stop = LANG2STOP.get(lang, set().union(*LANG2STOP.values()))  # unk -> union
+        stop |= company_stop
+        stop |= MONTHS
         kept = [t for t in toks if t not in stop and len(t) > 2]
         out.append(" ".join(kept))
     return out
@@ -286,6 +352,8 @@ def main():
         df = df[~mask_system].copy()
         print(f"Filtered out {mask_system.sum()} system/notification items.")
 
+  
+
     X_raw = (df["title"].fillna("").str.strip() + " " + df["full_text"].fillna("").map(lambda t: lead(t, 1200)))
 
     
@@ -300,14 +368,18 @@ def main():
 
     print("Language distribution:\n", df["lang"].value_counts(dropna=False), "\n")
 
+
+    # after you have df loaded/cleaned:
+    COMPANY_STOP = make_company_stopwords(df)
+
     # ---- Preprocess per language
-    X_clean = preprocess_docs_word_ngrams(df, X_raw, df["lang"])
+    X_clean = preprocess_docs_word_ngrams(df, X_raw, df["lang"], COMPANY_STOP)
 
     # --- Vectorization (character n-grams; language-agnostic) + SVD ---
     # 4) Word-level TF-IDF (with bigrams)
     tfidf_word = TfidfVectorizer(
         analyzer="word",
-        ngram_range=(1, 2),
+        ngram_range=(1, 3),
         min_df=3,
         max_df=0.70,
         max_features=200_000,
@@ -338,6 +410,36 @@ def main():
 
     print("Silhouette scores:", sil_scores)
     print(f"Selected k={best_k} (silhouette={best_score:.3f})\n")
+
+    # --- Per-cluster silhouette diagnostics ---
+    # Per-sample silhouettes (Euclidean is fine since you L2-normalize)
+    sil_samples = silhouette_samples(X_reduced, labels, metric="euclidean")
+    df["_silhouette"] = sil_samples
+
+    # Aggregate per cluster
+    diag_rows = []
+    for c in range(best_k):
+        mask = (labels == c)
+        ss = sil_samples[mask]
+        if ss.size == 0:
+            continue
+        diag_rows.append({
+            "cluster": c,
+            "sil_mean": float(np.mean(ss)),
+            "sil_median": float(np.median(ss)),
+            "sil_p10": float(np.percentile(ss, 10)),
+            "sil_p25": float(np.percentile(ss, 25)),
+            "sil_p75": float(np.percentile(ss, 75)),
+            "sil_p90": float(np.percentile(ss, 90)),
+            "size": int(mask.sum()),
+        })
+
+    diag = pd.DataFrame(diag_rows).sort_values("sil_mean", ascending=True)
+    diag.to_csv("cluster_diagnostics.csv", index=False)
+    print("Wrote cluster_diagnostics.csv (per-cluster silhouette stats)")
+
+
+
 
     df["cluster_k"] = best_k
     df["cluster"] = labels  # <-- attach unsupervised cluster id
@@ -402,8 +504,12 @@ def main():
         })
 
     summary = pd.DataFrame(rows).sort_values("size", ascending=False)
+    summary = summary.merge(
+        diag[["cluster","sil_mean","sil_p25","sil_p75"]],  # pick what you want to show
+        on="cluster", how="left"
+    )
     summary.to_csv(OUT_LOCAL_SUMMARY_CSV, index=False)
-    print(f"Wrote {OUT_LOCAL_SUMMARY_CSV}")
+    print(f"Wrote {OUT_LOCAL_SUMMARY_CSV} (with per-cluster silhouette)")
 
     # --- Dump a small sample of assignments for manual review ---
     show_cols = [c for c in ["release_date", "company_name", "title", "lang", "cluster", "cluster_k", "category"] if c in df.columns]
