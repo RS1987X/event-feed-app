@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import gcsfs
 
+from sklearn.pipeline import make_pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD, NMF
 from sklearn.cluster import MiniBatchKMeans
@@ -114,6 +115,7 @@ MONTHS = {
     "tammikuu","helmikuu","maaliskuu","huhtikuu","toukokuu","kesäkuu",
     "heinäkuu","elokuu","syyskuu","lokakuu","marraskuu","joulukuu",
 }
+
 
 
 # # 2) Stopword dictionaries (seed lists; extend as you see patterns)
@@ -514,7 +516,7 @@ def main():
     # --- Dump a small sample of assignments for manual review ---
     show_cols = [c for c in ["release_date", "company_name", "title", "lang", "cluster", "cluster_k", "category"] if c in df.columns]
     
-    assign_sample = (df.sample(min(2000, len(df)), random_state=42)[show_cols]
+    assign_sample = (df.sample(min(1000, len(df)), random_state=42)[show_cols]
         .sort_values(["cluster"])
         .reset_index(drop=True)
     )
