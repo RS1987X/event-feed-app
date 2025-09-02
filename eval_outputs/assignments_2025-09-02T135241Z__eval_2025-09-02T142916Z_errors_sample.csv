@@ -1,0 +1,22 @@
+press_release_id,cid,true_cid_norm,category_name,cat_sim,cat_margin,p1_emb,p1_lsa,entropy_fused
+1978f50da17513ac,admission_listing,other_corporate_update,Admission / Listing,0.0536,0.0002,0.0541,0.0545,2.9444
+197d75cb92e07e2a,admission_listing,other_corporate_update,Admission / Listing,0.0534,0.0001,0.0539,0.0539,2.9444
+1983b7552fda9709,incidents_controversies,other_corporate_update,Incidents / Controversies,0.0536,0.0002,0.0537,0.055,2.9444
+19841335422341a8,legal_regulatory_compliance,product_launch_partnership,Legal / Regulatory / Compliance,0.0533,0.0001,0.0536,0.0541,2.9444
+198439664f07073b,admission_listing,other_corporate_update,Admission / Listing,0.0536,0.0002,0.054,0.0544,2.9444
+198c947f64b39ff0,admission_listing,other_corporate_update,Admission / Listing,0.0541,0.0004,0.0543,0.0543,2.9444
+198bbceaa715623e,agm_egm_governance,debt_bond_issue,AGM/EGM & governance,0.0547,0.0015,0.0539,0.0586,2.9444
+19789b912027604e,credit_ratings,other_corporate_update,Credit & Ratings,0.0549,0.0018,0.0536,0.0585,2.9444
+197f359f6ffd04ec,debt_bond_issue,other_corporate_update,Debt / Bond issue,0.0538,0.0003,0.0535,0.0547,2.9444
+198bbef5a9d55cc6,incidents_controversies,debt_bond_issue,Incidents / Controversies,0.0536,0.0,0.0543,0.0569,2.9444
+198f117525301b5a,legal_regulatory_compliance,debt_bond_issue,Legal / Regulatory / Compliance,0.0546,0.0002,0.0535,0.058,2.9443
+198a91d29c71d6d0,equity_actions_non_buyback,mna,Equity actions (non-buyback),0.0533,0.0001,0.0539,0.0536,2.9444
+1978f549bb8a27af,equity_actions_non_buyback,other_corporate_update,Equity actions (non-buyback),0.0532,0.0,0.0537,0.0539,2.9444
+198bc039b0f03d27,incidents_controversies,product_launch_partnership,Incidents / Controversies,0.0563,0.0016,0.0538,0.0615,2.9442
+198cba6eeed5fdf0,incidents_controversies,other_corporate_update,Incidents / Controversies,0.0543,0.0008,0.0535,0.0565,2.9444
+198c6102555ee637,legal_regulatory_compliance,other_corporate_update,Legal / Regulatory / Compliance,0.0553,0.0006,0.054,0.0599,2.9442
+198e59831e76db7a,orders_contracts,earnings_report,Orders / Contracts,0.0538,0.0001,0.0545,0.0558,2.9444
+198ebef9034ba7cd,earnings_report,orders_contracts,Earnings report,0.0532,0.0001,0.0535,0.0543,2.9444
+198a8e187fc5a3bf,product_launch_partnership,personnel_management_change,Product / Launch / Partnership,0.0538,0.0002,0.0537,0.0551,2.9444
+198ef8d584b681f1,other_corporate_update,legal_regulatory_compliance,Other / Corporate update,0.0539,0.0003,0.0537,0.055,2.9444
+198a8874930809ea,personnel_management_change,other_corporate_update,Personnel / Management change,0.0539,0.0005,0.0541,0.0554,2.9444

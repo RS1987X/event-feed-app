@@ -1,0 +1,15 @@
+true,admission_listing,agm_egm_governance,credit_ratings,debt_bond_issue,earnings_report,equity_actions_non_buyback,incidents_controversies,legal_regulatory_compliance,mna,orders_contracts,other_corporate_update,pdmr_managers_transactions,personnel_management_change,product_launch_partnership
+admission_listing,2,0,0,0,0,0,0,0,0,0,0,0,0,0
+agm_egm_governance,0,1,0,0,0,0,0,0,0,0,0,0,0,0
+credit_ratings,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+debt_bond_issue,0,1,0,0,0,0,1,1,0,0,0,0,0,0
+earnings_report,0,0,0,0,2,0,0,0,0,1,0,0,0,0
+equity_actions_non_buyback,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+incidents_controversies,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+legal_regulatory_compliance,0,0,0,0,0,0,0,0,0,0,1,0,0,0
+mna,0,0,0,0,0,1,0,0,0,0,0,0,0,0
+orders_contracts,0,0,0,0,1,0,0,0,0,0,0,0,0,0
+other_corporate_update,4,0,1,1,0,1,2,1,0,0,0,0,1,0
+pdmr_managers_transactions,0,0,0,0,0,0,0,0,0,0,0,1,0,0
+personnel_management_change,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+product_launch_partnership,0,0,0,0,0,0,1,1,0,0,0,0,0,0

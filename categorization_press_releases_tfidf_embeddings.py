@@ -27,6 +27,17 @@ from dedup_utils import dedup_df
 from near_dedup import near_dedup_embeddings
 from company_name_remover import clean_df_from_company_names
 from event_taxonomies import l1_v3_en
+from event_taxonomies.keyword_rules import keywords
+from event_taxonomies.taxonomy_rules_classifier import classify_batch, classify_press_release
+
+import logging
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+else:
+    logging.getLogger().setLevel(logging.INFO)
 
 # ---------- Config ----------
 
@@ -52,7 +63,9 @@ class Config:
     OUTPUT_GCS_URI: str   = os.getenv("OUTPUT_GCS_URI", "")
 
     # Embeddings
-    EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-base")
+    #EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-base")
+    EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-large")
+    
     E5_PREFIX: bool     = bool(int(os.getenv("E5_PREFIX", "1")))
     EMB_BATCH_SIZE: int = int(os.getenv("EMB_BATCH_SIZE", "32"))
     MAX_SEQ_TOKENS: int = int(os.getenv("MAX_SEQ_TOKENS", "384"))
@@ -372,6 +385,89 @@ def consensus_by_dup_group(doc_df: pd.DataFrame, P_fused: np.ndarray) -> Dict[st
         is_group_rep=is_rep.values,
         sample_weight_dedup=np.round(sample_weight, 6),
     )
+def report_rule_metrics(
+    df: pd.DataFrame,
+    assigned_col: str = "assigned_by",
+    rule_id_col: str = "rule_id",
+    rules_cat_col: str = "category_rules",
+    model_cat_col: str = "category_model",
+    final_col: str = "category",
+):
+    import logging, numpy as np, pandas as pd
+    logger = logging.getLogger("cat.metrics")
+
+    total = int(len(df))
+    if total == 0:
+        logger.info("report_rule_metrics: empty dataframe; skipping.")
+        return
+
+    # --- derive/sanitize assigned_by ---
+    if assigned_col in df.columns:
+        assigned = df[assigned_col]
+    elif "final_source" in df.columns:
+        assigned = df["final_source"].map({"rules": "rules", "ml": "model"}).fillna("none")
+    else:
+        rules_has = df.get(rules_cat_col)
+        model_has = df.get(model_cat_col)
+        assigned = np.where(
+            (rules_has.notna() if rules_has is not None else False), "rules",
+            np.where((model_has.notna() if model_has is not None else False), "model", "none")
+        )
+
+    def _scalarize(x):
+        if isinstance(x, np.generic): return x.item()
+        if isinstance(x, np.ndarray):
+            if x.ndim == 0: return x.item()
+            if x.size == 1: return x.reshape(-1)[0]
+            return ",".join(map(str, x.tolist()))
+        if isinstance(x, (list, tuple)):
+            return x[0] if len(x) == 1 else ",".join(map(str, x))
+        return x
+
+    assigned_s = pd.Series(assigned).map(_scalarize).astype("string")
+
+    # --- assignments by source ---
+    by_source = (
+        assigned_s.value_counts(dropna=False)
+        .rename_axis("source").to_frame("n")
+        .assign(pct=lambda s: (s["n"] / max(total, 1)).round(4))
+        .reset_index()
+    )
+    logger.info("Assignments by source:\n%s", by_source.to_string(index=False))
+
+    # --- rules coverage + top rules ---
+    rules_mask = assigned_s.eq("rules")
+    n_rules = int(rules_mask.sum())
+    logger.info("Rules-assigned: %d/%d (%.2f%%)", n_rules, total, 100.0 * n_rules / max(total, 1))
+
+    if rule_id_col in df.columns and n_rules:
+        by_rule = (
+            df.loc[rules_mask, rule_id_col]
+              .astype("string")
+              .value_counts()
+              .rename_axis("rule_id")
+              .to_frame("n")
+        )
+        by_rule["pct_of_rules"] = (by_rule["n"] / max(n_rules, 1)).round(4)
+        logger.info("Top rules by coverage (up to 20):\n%s",
+                    by_rule.head(20).to_string())
+
+    # --- rules vs model conflicts ---
+    if rules_cat_col in df.columns and model_cat_col in df.columns:
+        rc = df[rules_cat_col].astype("string")
+        mc = df[model_cat_col].astype("string")
+        conflicts = rc.notna() & mc.notna() & rc.ne(mc)
+        n_conflicts = int(conflicts.sum())
+        logger.info("Rules vs Model conflicts: %d (%.2f%%)",
+                    n_conflicts, 100.0 * n_conflicts / max(total, 1))
+
+    # --- unassigned after final resolution ---
+    if final_col in df.columns:
+        unassigned = int(df[final_col].isna().sum())
+        logger.info("Unassigned after resolution: %d (%.2f%%)",
+                    unassigned, 100.0 * unassigned / max(total, 1))
+
+
 
 # ---------- Output builders ----------
 
@@ -497,6 +593,39 @@ def run(cfg: Config):
 
     base_df = base_df.reset_index(drop=True)
 
+    # 3b) Rules-first classification (keywords + smart rules)
+    # FIXED: removed stray parenthesis and passed keywords correctly
+    df_pred = classify_batch(
+        base_df,
+        text_cols=("title_clean", "full_text_clean"),
+        keywords=keywords
+    )
+    # Keep the rule-based predictions in the working dataframe
+    base_df = df_pred  # carri
+        
+    # --- provenance from rules ---
+    base_df["rule_id"] = base_df["pred_details"].map(lambda d: (d or {}).get("rule"))
+    base_df["category_rules"] = base_df["pred_cid"]
+    base_df["rule_conf"] = base_df["pred_details"].map(lambda d: float((d or {}).get("rule_conf", 0.0)))
+    base_df["rule_lock"] = base_df["pred_details"].map(lambda d: bool((d or {}).get("lock", False)))
+    base_df["needs_review_low_sim"] = base_df["pred_details"].map(lambda d: bool((d or {}).get("needs_review_low_sim", False)))
+
+
+        # Mark confident rule hits (lock=True or rule_conf >= 0.75) and not "other"
+    RULE_CONF_THR = 0.75
+
+    def is_rules_final(row) -> bool:
+        det = row.get("pred_details") or {}
+        if det.get("lock"):
+            return row.get("pred_cid") != "other_corporate_update"
+        if det.get("needs_review_low_sim", False):
+            return False
+        conf = float(det.get("rule_conf", 0.0))
+        return (row.get("pred_cid") not in (None, "", "other_corporate_update")) and (conf >= RULE_CONF_THR)
+
+    mask_rules_final = base_df.apply(is_rules_final, axis=1)
+
+
     # 4) Taxonomy text
     cat_names = [name for _, name, _ in L1_CATEGORIES]
     cat_descs = [desc for _, _, desc in L1_CATEGORIES]
@@ -585,6 +714,31 @@ def run(cfg: Config):
         margin = np.zeros_like(best_prob)
 
     assigned_cids  = [L1_CATEGORIES[i][0] for i in best_idx]
+
+    # --- provenance from model/fusion ---
+    base_df["category_model"] = assigned_cids
+    base_df["model_conf"] = best_prob
+    base_df["model_version"] = f"e5+tfidf:{cfg.TAXONOMY_VERSION}|alpha={cfg.FUSE_ALPHA}|T={cfg.TEMP_EMB}/{cfg.TEMP_LSA}"
+
+    # Rules-first fusion: rules decide where confident; ML handles the rest
+    final_cids = []
+    final_source = []
+    for i in range(len(base_df)):
+        if mask_rules_final.iloc[i]:
+            final_cids.append(base_df.loc[i, "pred_cid"])
+            final_source.append("rules")
+        else:
+            final_cids.append(assigned_cids[i])
+            final_source.append("ml")
+    base_df["final_cid"] = final_cids
+    base_df["final_source"] = final_source
+
+        # --- normalize names expected by metrics ---
+    base_df["assigned_by"] = base_df["final_source"].map({"rules": "rules", "ml": "model"}).astype("string")
+    base_df["category"]    = base_df["final_cid"]
+
+    report_rule_metrics(base_df)
+
     decisions = [decide(float(p), float(m), cfg.CAT_ASSIGN_MIN_SIM, cfg.CAT_LOW_MARGIN) for p, m in zip(best_prob, margin)]
 
     # 11) Diagnostics
@@ -603,7 +757,7 @@ def run(cfg: Config):
     # 13) Output dataframe
     out = build_output_df(
         base_df=base_df,
-        assigned_cids=assigned_cids,
+        assigned_cids=base_df["final_cid"].tolist(),
         best_prob=best_prob,
         margin=margin,
         decisions=decisions,
@@ -613,11 +767,15 @@ def run(cfg: Config):
         top3_idx=top3_idx,
         cfg=cfg,
         consensus_payload=consensus_payload,
+        
     )
 
     # 14) Write outputs
-    out.to_csv(cfg.OUTPUT_LOCAL_CSV, index=False)
-    print(f"[ok] Wrote {len(out)} assignments to {os.path.abspath(cfg.OUTPUT_LOCAL_CSV)}")
+    output_csv = cfg.OUTPUT_LOCAL_CSV
+    root, ext = os.path.splitext(output_csv)
+    output_csv_ts = f"{root}_{RUN_TS}{ext}"
+    out.to_csv(output_csv_ts, index=False)
+    print(f"[ok] Wrote {len(out)} assignments to {os.path.abspath(output_csv_ts)}")
 
     # 15) Run summary
     summary = summarize_run(out, neighbor_consistency, cfg)

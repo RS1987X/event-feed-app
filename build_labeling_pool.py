@@ -4,7 +4,7 @@ import numpy as np
 from collections import defaultdict
 
 ASSIGNMENTS_CSV = "assignments.csv"     # input: full predictions
-LABEL_CSV       = "labeling_pool.csv"   # output: for manual labeling
+LABEL_CSV       = "labeling_pool"   # output: for manual labeling
 
 # --- CONFIG ---
 TARGET_PER_CLASS = 10            # aim per predicted category
@@ -135,8 +135,10 @@ keep_cols_order = [
 # Reorder columns
 keep_cols = [c for c in keep_cols_order if c in label_pool.columns]
 label_pool = label_pool[keep_cols].sort_values(["pred_cid","margin_band","pred_margin"])
-
+import datetime
+ts = datetime.now().strftime("%Y-%m-%dT%H-%M")
+path = f"data/labeled/{LABEL_CSV}_{ts}.csv"
 # Write out
-label_pool.to_csv(LABEL_CSV, index=False, encoding="utf-8")
+label_pool.to_csv(path, index=False, encoding="utf-8")
 print(f"[ok] wrote {len(label_pool)} rows to {LABEL_CSV}")
 
