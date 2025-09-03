@@ -465,6 +465,6 @@ def classify_batch(df, text_cols=("title", "body"), keywords: Dict[str, List[str
         cid, det = classify_press_release(t, b, keywords)
         preds.append(cid)
         details.append(det)
-    out["pred_cid"] = preds
-    out["pred_details"] = details
+    out["rule_pred_cid"] = preds
+    out["rule_pred_details"] = details
     return out

@@ -22,7 +22,7 @@ from sklearn.preprocessing import Normalizer
 from sklearn.neighbors import NearestNeighbors
 
 # External modules you already have
-from housekeeping_gate import apply_housekeeping_filter
+from src.event_feed_app.gating.housekeeping_gate import apply_housekeeping_filter
 from dedup_utils import dedup_df
 from near_dedup import near_dedup_embeddings
 from company_name_remover import clean_df_from_company_names
@@ -63,8 +63,8 @@ class Config:
     OUTPUT_GCS_URI: str   = os.getenv("OUTPUT_GCS_URI", "")
 
     # Embeddings
-    #EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-base")
-    EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-large")
+    EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-base")
+    #EMB_MODEL_NAME: str = os.getenv("EMB_MODEL_NAME", "intfloat/multilingual-e5-large")
     
     E5_PREFIX: bool     = bool(int(os.getenv("E5_PREFIX", "1")))
     EMB_BATCH_SIZE: int = int(os.getenv("EMB_BATCH_SIZE", "32"))
@@ -78,7 +78,7 @@ class Config:
     # Misc
     SNIPPET_CHARS: int = int(os.getenv("SNIPPET_CHARS", "600"))
     TAXONOMY_VERSION: str = os.getenv("TAXONOMY_VERSION", "v3")
-    RUN_METRICS_CSV: str  = os.getenv("RUN_METRICS_CSV", "runs_metrics.csv")
+    RUN_METRICS_CSV: str  = os.getenv("RUN_METRICS_CSV", "runs_metrics_v2.csv")
 
     # LangID
     LANG_WHITELIST: str = os.getenv("LANG_WHITELIST", "en,sv,fi,da,no,de,fr,is")
@@ -387,11 +387,11 @@ def consensus_by_dup_group(doc_df: pd.DataFrame, P_fused: np.ndarray) -> Dict[st
     )
 def report_rule_metrics(
     df: pd.DataFrame,
-    assigned_col: str = "assigned_by",
+    assigned_col: str = "final_source",
     rule_id_col: str = "rule_id",
-    rules_cat_col: str = "category_rules",
-    model_cat_col: str = "category_model",
-    final_col: str = "category",
+    rules_cat_col: str = "rule_pred_cid",
+    model_cat_col: str = "ml_pred_cid",
+    final_col: str = "final_cid",
 ):
     import logging, numpy as np, pandas as pd
     logger = logging.getLogger("cat.metrics")
@@ -470,13 +470,10 @@ def report_rule_metrics(
 
 
 # ---------- Output builders ----------
-
 def build_output_df(
     base_df: pd.DataFrame,
-    assigned_cids: List[str],
     best_prob: np.ndarray,
     margin: np.ndarray,
-    decisions: List[str],
     P_emb: np.ndarray,
     P_lsa: np.ndarray,
     P_fused: np.ndarray,
@@ -485,63 +482,73 @@ def build_output_df(
     consensus_payload: Dict[str, np.ndarray],
 ) -> pd.DataFrame:
 
-    snippet = base_df["full_text_clean"].astype(str).str.slice(0, cfg.SNIPPET_CHARS)
-    id_cols = [c for c in ["press_release_id","release_date","company_name","category","source","source_url"]
+    id_cols = [c for c in ["press_release_id","release_date","company_name","source","source_url"]
                if c in base_df.columns]
     out = base_df[id_cols].copy() if id_cols else pd.DataFrame(index=base_df.index)
 
-    assigned_names = [CID2NAME[cid] for cid in assigned_cids]
-    entropy_emb = entropy_rows(P_emb)
-    entropy_lsa = entropy_rows(P_lsa)
-    entropy_fused = entropy_rows(P_fused)
-    top3_fused = topk_sum(P_fused, k=3)
+    # Final assignment
+    out["final_cid"]          = base_df["final_cid"]
+    out["final_category_name"]= base_df["final_category_name"]
+    out["final_source"]       = base_df["final_source"]
+    out["final_decision"] = base_df["final_decision"]
+    out["ml_decision"]    = base_df["ml_decision"]
 
-    p1_emb = P_emb[np.arange(len(P_emb)), np.argmax(P_emb, axis=1)]
-    p1_lsa = P_lsa[np.arange(len(P_lsa)), np.argmax(P_lsa, axis=1)]
+    # Rules provenance
+    for c in ["rule_id","rule_conf","rule_lock","rule_needs_review","rule_pred_cid"]:
+        if c in base_df.columns:
+            out[c] = base_df[c]
 
-    top3_cids = [[L1_CATEGORIES[j][0] for j in row] for row in top3_idx]
-    top3_probs = [P_fused[i, top3_idx[i]].round(4).tolist() for i in range(len(P_fused))]
+    # ML diagnostics (fused)
+    out["ml_pred_cid"]        = base_df["ml_pred_cid"]
+    out["ml_conf_fused"]      = np.round(best_prob, 4)
+    out["ml_margin_fused"]    = np.round(margin, 4)
+    out["ml_entropy_emb"]     = base_df["ml_entropy_emb"]
+    out["ml_entropy_lsa"]     = base_df["ml_entropy_lsa"]
+    out["ml_entropy_fused"]   = base_df["ml_entropy_fused"]
+    out["ml_p1_emb"]          = base_df["ml_p1_emb"]
+    out["ml_p1_lsa"]          = base_df["ml_p1_lsa"]
+    out["ml_agreement_emb_lsa"]= base_df["ml_agreement_emb_lsa"]
+    out["ml_top3_cids"]       = base_df["ml_top3_cids"]
+    out["ml_top3_probs"]      = base_df["ml_top3_probs"]
+    out["ml_version"]         = base_df["ml_version"]
 
-    out["cid"]           = assigned_cids
-    out["category_name"] = assigned_names
-    out["cat_sim"]       = best_prob.round(4)
-    out["cat_margin"]    = margin.round(4)
-    out["decision"]      = decisions
-    out["title"]         = base_df["title_clean"]
-    out["snippet"]       = snippet
-    out["run_id"]              = RUN_TS
-    out["taxonomy_version"]    = cfg.TAXONOMY_VERSION
-    out["p1_emb"]              = np.round(p1_emb, 4)
-    out["p1_lsa"]              = np.round(p1_lsa, 4)
-    out["entropy_emb"]         = np.round(entropy_emb, 4)
-    out["entropy_lsa"]         = np.round(entropy_lsa, 4)
-    out["entropy_fused"]       = np.round(entropy_fused, 4)
-    out["top3_fused_sum"]      = np.round(top3_fused, 4)
-    out["agreement_emb_lsa"]   = (np.argmax(P_emb, axis=1) == np.argmax(P_lsa, axis=1)).astype(bool)
+    # Text
+    out["title"]   = base_df["title_clean"]
+    out["snippet"] = base_df["full_text_clean"].astype(str).str.slice(0, cfg.SNIPPET_CHARS)
 
+    # Group consensus exports
     for k, v in consensus_payload.items():
-        if k == "P_fused_g":  # internal
+        if k == "P_fused_g":
             continue
-        if k in ["best_idx_g"]:
-            out["cid_group"] = [L1_CATEGORIES[i][0] for i in v]
-        elif k in ["best_prob_g"]:
-            out["cat_sim_group"] = np.round(v, 4)
-        elif k in ["margin_g"]:
-            out["cat_margin_group"] = np.round(v, 4)
-        elif k in ["entropy_fused_g"]:
-            out["entropy_fused_group"] = np.round(v, 4)
+        if k == "best_idx_g":
+            out["final_cid_group"] = [L1_CATEGORIES[i][0] for i in v]
+        elif k == "best_prob_g":
+            out["ml_conf_fused_group"] = np.round(v, 4)
+        elif k == "margin_g":
+            out["ml_margin_fused_group"] = np.round(v, 4)
+        elif k == "entropy_fused_g":
+            out["ml_entropy_fused_group"] = np.round(v, 4)
         else:
             out[k] = v
 
-    out["top3_cids"]  = [json.dumps(v) for v in top3_cids]
-    out["top3_probs"] = [json.dumps(v) for v in top3_probs]
+    # Run metadata
+    out["run_id"]           = RUN_TS
+    out["taxonomy_version"] = cfg.TAXONOMY_VERSION
     return out
 
 def summarize_run(out: pd.DataFrame, neighbor_consistency: np.ndarray, cfg: Config) -> dict:
     from collections import Counter
     N = len(out)
-    dec_counts = Counter(out["decision"].tolist())
-    cat_counts = Counter(out["cid"].tolist())
+
+    ml_dec = out.get("ml_decision")
+    if ml_dec is None:
+        ml_dec = pd.Series([], dtype=str)
+    dec_counts = Counter(ml_dec.tolist())
+
+    cat_counts = Counter(out["final_cid"].tolist()) if "final_cid" in out else Counter()
+
+    share_final_by_rules = float((out["final_source"] == "rules").mean()) if "final_source" in out and N else 0.0
+
     return {
         "run_id": RUN_TS,
         "taxonomy_version": cfg.TAXONOMY_VERSION,
@@ -552,19 +559,25 @@ def summarize_run(out: pd.DataFrame, neighbor_consistency: np.ndarray, cfg: Conf
         "fuse_alpha": cfg.FUSE_ALPHA,
         "temp_emb": cfg.TEMP_EMB,
         "temp_lsa": cfg.TEMP_LSA,
-        "cat_assign_min_sim": cfg.CAT_ASSIGN_MIN_SIM,
-        "cat_low_margin": cfg.CAT_LOW_MARGIN,
-        "agreement_rate_emb_lsa": float(np.mean(out["agreement_emb_lsa"])) if N else 0.0,
-        "avg_margin_fused": float(np.mean(out["cat_margin"])) if N else 0.0,
-        "avg_entropy_fused": float(np.mean(out["entropy_fused"])) if N else 0.0,
-        f"avg_neighbor_consistency_k{cfg.KNN_K}": float(np.mean(neighbor_consistency)) if N else 0.0,
-        f"p10_neighbor_consistency_k{cfg.KNN_K}": float(np.percentile(neighbor_consistency, 10)) if N else 0.0,
+
+        "agreement_rate_emb_lsa": float(np.mean(out["ml_agreement_emb_lsa"])) if N and "ml_agreement_emb_lsa" in out else 0.0,
+        "avg_margin_fused": float(np.mean(out["ml_margin_fused"])) if N and "ml_margin_fused" in out else 0.0,
+        "avg_entropy_fused": float(np.mean(out["ml_entropy_fused"])) if N and "ml_entropy_fused" in out else 0.0,
+
+        f"avg_neighbor_consistency_k{cfg.KNN_K}": float(np.mean(neighbor_consistency)) if len(neighbor_consistency) else 0.0,
+        f"p10_neighbor_consistency_k{cfg.KNN_K}": float(np.percentile(neighbor_consistency, 10)) if len(neighbor_consistency) else 0.0,
+
         "rate_auto_assign": dec_counts.get("auto_assign", 0) / N if N else 0.0,
         "rate_needs_review_margin": dec_counts.get("needs_review_margin", 0) / N if N else 0.0,
         "rate_needs_review_low_sim": dec_counts.get("needs_review_low_sim", 0) / N if N else 0.0,
-        "category_counts_json": json.dumps(cat_counts, ensure_ascii=False),
-        "decision_counts_json": json.dumps(dec_counts, ensure_ascii=False),
+
+        "share_final_by_rules": share_final_by_rules,
+
+        "category_counts_json": json.dumps(dict(cat_counts), ensure_ascii=False),
+        "decision_counts_json": json.dumps(dict(Counter(out.get("final_decision", pd.Series([], dtype=str)).tolist())), ensure_ascii=False),
     }
+
+
 
 # ---------- Main pipeline ----------
 
@@ -604,24 +617,24 @@ def run(cfg: Config):
     base_df = df_pred  # carri
         
     # --- provenance from rules ---
-    base_df["rule_id"] = base_df["pred_details"].map(lambda d: (d or {}).get("rule"))
-    base_df["category_rules"] = base_df["pred_cid"]
-    base_df["rule_conf"] = base_df["pred_details"].map(lambda d: float((d or {}).get("rule_conf", 0.0)))
-    base_df["rule_lock"] = base_df["pred_details"].map(lambda d: bool((d or {}).get("lock", False)))
-    base_df["needs_review_low_sim"] = base_df["pred_details"].map(lambda d: bool((d or {}).get("needs_review_low_sim", False)))
+    base_df["rule_id"]           = base_df["rule_pred_details"].map(lambda d: (d or {}).get("rule"))
+    base_df["category_rules"]    = base_df["rule_pred_cid"]  # back-compat alias if other code expects it
+    base_df["rule_conf"]         = base_df["rule_pred_details"].map(lambda d: float((d or {}).get("rule_conf", 0.0)))
+    base_df["rule_lock"]         = base_df["rule_pred_details"].map(lambda d: bool((d or {}).get("lock", False)))
+    base_df["rule_needs_review"] = base_df["rule_pred_details"].map(lambda d: bool((d or {}).get("needs_review_low_sim", False)))
 
 
-        # Mark confident rule hits (lock=True or rule_conf >= 0.75) and not "other"
+    # Mark confident rule hits (lock=True or rule_conf >= 0.75) and not "other"
     RULE_CONF_THR = 0.75
 
     def is_rules_final(row) -> bool:
-        det = row.get("pred_details") or {}
+        det = row.get("rule_pred_details") or {}
         if det.get("lock"):
-            return row.get("pred_cid") != "other_corporate_update"
+            return row.get("rule_pred_cid") != "other_corporate_update"
         if det.get("needs_review_low_sim", False):
             return False
         conf = float(det.get("rule_conf", 0.0))
-        return (row.get("pred_cid") not in (None, "", "other_corporate_update")) and (conf >= RULE_CONF_THR)
+        return (row.get("rule_pred_cid") not in (None, "", "other_corporate_update")) and (conf >= RULE_CONF_THR)
 
     mask_rules_final = base_df.apply(is_rules_final, axis=1)
 
@@ -661,8 +674,8 @@ def run(cfg: Config):
 
     # 8) Per-language TF-IDF similarities with localized category texts
 
-    L1_CATEGORIES
-    CID2NAME
+    # L1_CATEGORIES
+    # CID2NAME
     base_L1 = L1_CATEGORIES
     base_cids = [cid for cid, _, _ in base_L1]
 
@@ -712,37 +725,87 @@ def run(cfg: Config):
     else:
         second_best = np.zeros_like(best_prob)
         margin = np.zeros_like(best_prob)
+    
+    
+    # --- ML (fused) provenance + diagnostics (Patch 2) ---
 
-    assigned_cids  = [L1_CATEGORIES[i][0] for i in best_idx]
+    # Assigned by fusion
+    assigned_cids = [L1_CATEGORIES[i][0] for i in best_idx]
 
-    # --- provenance from model/fusion ---
-    base_df["category_model"] = assigned_cids
-    base_df["model_conf"] = best_prob
-    base_df["model_version"] = f"e5+tfidf:{cfg.TAXONOMY_VERSION}|alpha={cfg.FUSE_ALPHA}|T={cfg.TEMP_EMB}/{cfg.TEMP_LSA}"
+    # Entropies and top-1 per source
+    entropy_emb   = entropy_rows(P_emb)
+    entropy_lsa   = entropy_rows(P_lsa)
+    entropy_fused = entropy_rows(P_fused)
+
+    p1_emb = P_emb[np.arange(len(P_emb)), np.argmax(P_emb, axis=1)]
+    p1_lsa = P_lsa[np.arange(len(P_lsa)), np.argmax(P_lsa, axis=1)]
+
+    # Top-3
+    top3_idx   = np.argsort(-P_fused, axis=1)[:, :3]
+    top3_cids  = [[L1_CATEGORIES[j][0] for j in row] for row in top3_idx]
+    top3_probs = [P_fused[i, top3_idx[i]].round(4).tolist() for i in range(len(P_fused))]
+
+    # Normalized ML columns
+    base_df["ml_pred_cid"]          = assigned_cids
+    base_df["ml_conf_fused"]        = best_prob
+    base_df["ml_margin_fused"]      = margin
+    base_df["ml_entropy_emb"]       = np.round(entropy_emb, 4)
+    base_df["ml_entropy_lsa"]       = np.round(entropy_lsa, 4)
+    base_df["ml_entropy_fused"]     = np.round(entropy_fused, 4)
+    base_df["ml_p1_emb"]            = np.round(p1_emb, 4)
+    base_df["ml_p1_lsa"]            = np.round(p1_lsa, 4)
+    base_df["ml_agreement_emb_lsa"] = (np.argmax(P_emb, axis=1) == np.argmax(P_lsa, axis=1)).astype(bool)
+    base_df["ml_top3_cids"]         = [json.dumps(v) for v in top3_cids]
+    base_df["ml_top3_probs"]        = [json.dumps(v) for v in top3_probs]
+    base_df["ml_version"]           = f"e5+tfidf:{cfg.TAXONOMY_VERSION}|alpha={cfg.FUSE_ALPHA}|T={cfg.TEMP_EMB}/{cfg.TEMP_LSA}"
+
+    # Back-compat aliases so existing scripts keep working
+    base_df["category_model"] = base_df["ml_pred_cid"]
+    base_df["model_conf"]     = base_df["ml_conf_fused"]
+    base_df["model_version"]  = base_df["ml_version"]
+
 
     # Rules-first fusion: rules decide where confident; ML handles the rest
-    final_cids = []
+    final_cids   = []
     final_source = []
     for i in range(len(base_df)):
         if mask_rules_final.iloc[i]:
-            final_cids.append(base_df.loc[i, "pred_cid"])
+            final_cids.append(base_df.loc[i, "rule_pred_cid"])
             final_source.append("rules")
         else:
-            final_cids.append(assigned_cids[i])
+            final_cids.append(base_df.loc[i, "ml_pred_cid"])
             final_source.append("ml")
-    base_df["final_cid"] = final_cids
-    base_df["final_source"] = final_source
 
-        # --- normalize names expected by metrics ---
-    base_df["assigned_by"] = base_df["final_source"].map({"rules": "rules", "ml": "model"}).astype("string")
+    base_df["final_cid"]     = final_cids
+    base_df["final_source"]  = final_source
+
+    # Decision string for the fused ML probability/margin (still useful to log)
+    # decisions = [decide(float(p), float(m), cfg.CAT_ASSIGN_MIN_SIM, cfg.CAT_LOW_MARGIN)
+    #             for p, m in zip(best_prob, margin)]
+    
+    # ML decision string for diagnostics
+    base_df["ml_decision"] = [decide(float(p), float(m), cfg.CAT_ASSIGN_MIN_SIM, cfg.CAT_LOW_MARGIN)
+                          for p, m in zip(best_prob, margin)]
+
+    # Final decision: if rules picked the label, mark that
+    base_df["final_decision"] = np.where(
+        base_df["final_source"].eq("rules"),
+        "by_rules",
+        base_df["ml_decision"]
+    )
+
+    # Display name
+    base_df["final_category_name"] = [CID2NAME[cid] for cid in base_df["final_cid"]]
+
+    # Back-compat aliases for metrics/eval that expect these
+    base_df["assigned_by"] = base_df["final_source"].map({"rules":"rules", "ml":"model"}).astype("string")
     base_df["category"]    = base_df["final_cid"]
+
 
     report_rule_metrics(base_df)
 
-    decisions = [decide(float(p), float(m), cfg.CAT_ASSIGN_MIN_SIM, cfg.CAT_LOW_MARGIN) for p, m in zip(best_prob, margin)]
-
     # 11) Diagnostics
-    top3_idx = np.argsort(-P_fused, axis=1)[:, :3]
+    #top3_idx = np.argsort(-P_fused, axis=1)[:, :3]
     neighbor_consistency = neighbor_consistency_scores(X, best_idx, cfg.KNN_K)
 
     # 12) Group consensus
@@ -757,18 +820,31 @@ def run(cfg: Config):
     # 13) Output dataframe
     out = build_output_df(
         base_df=base_df,
-        assigned_cids=base_df["final_cid"].tolist(),
         best_prob=best_prob,
         margin=margin,
-        decisions=decisions,
         P_emb=P_emb,
         P_lsa=P_lsa,
         P_fused=P_fused,
         top3_idx=top3_idx,
         cfg=cfg,
         consensus_payload=consensus_payload,
-        
     )
+    
+    
+    # out = build_output_df(
+    #     base_df=base_df,
+    #     assigned_cids=base_df["final_cid"].tolist(),
+    #     best_prob=best_prob,
+    #     margin=margin,
+    #     decisions=decisions,
+    #     P_emb=P_emb,
+    #     P_lsa=P_lsa,
+    #     P_fused=P_fused,
+    #     top3_idx=top3_idx,
+    #     cfg=cfg,
+    #     consensus_payload=consensus_payload,
+        
+    # )
 
     # 14) Write outputs
     output_csv = cfg.OUTPUT_LOCAL_CSV

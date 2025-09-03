@@ -1,0 +1,106 @@
+press_release_id,cid,true_cid_norm,category_name,cat_sim,cat_margin,p1_emb,p1_lsa,entropy_fused
+1978f50da17513ac,admission_listing,other_corporate_update,Admission / Listing,0.0533,0.0002,0.0535,0.0535,2.9444
+197d75cb92e07e2a,admission_listing,other_corporate_update,Admission / Listing,0.0532,0.0,0.0537,0.0533,2.9444
+1981f83caee73fee,admission_listing,other_corporate_update,Admission / Listing,0.0533,0.0001,0.0536,0.0535,2.9444
+1983b7552fda9709,incidents_controversies,other_corporate_update,Incidents / Controversies,0.0532,0.0002,0.0532,0.0536,2.9444
+198c265bdfdd8da1,capital_raise_rights_issue,admission_listing,Capital raise / Rights issue,0.0535,0.0001,0.0541,0.0542,2.9444
+198d156c78f7b428,admission_delisting,pdmr_managers_transactions,Delisting / Trading halt,0.0549,0.0002,0.0555,0.0561,2.9443
+198bd12811c17188,personnel_management_change,admission_delisting,Personnel / Management change,0.0552,0.0013,0.0542,0.0567,2.9443
+197fb762dd404059,share_buyback,other_corporate_update,Share buyback,0.0532,0.0,0.0535,0.0534,2.9444
+19841335422341a8,legal_regulatory_compliance,product_launch_partnership,Legal / Regulatory / Compliance,0.0533,0.0002,0.0538,0.0534,2.9444
+198439664f07073b,admission_listing,other_corporate_update,Admission / Listing,0.0533,0.0001,0.0536,0.0535,2.9444
+198a92fc76f83a4a,capital_raise_rights_issue,admission_listing,Capital raise / Rights issue,0.0536,0.0001,0.0538,0.0543,2.9444
+198c947f64b39ff0,admission_delisting,other_corporate_update,Delisting / Trading halt,0.0537,0.0,0.0546,0.0537,2.9444
+198befb22357848e,admission_listing,other_corporate_update,Admission / Listing,0.0537,0.0,0.0545,0.0537,2.9444
+198c7b11841a926c,agm_egm_governance,product_launch_partnership,AGM/EGM & governance,0.0536,0.0005,0.0535,0.0538,2.9444
+197c4adff1b08926,share_buyback,mna,Share buyback,0.0532,0.0002,0.0536,0.053,2.9444
+197d788514939ade,other_corporate_update,mna,Other / Corporate update,0.0535,0.0002,0.0536,0.0541,2.9444
+198838b9adf96ee2,share_buyback,mna,Share buyback,0.0532,0.0002,0.0536,0.053,2.9444
+198ec74beee03085,orders_contracts,agm_egm_governance,Orders / Contracts,0.0573,0.003,0.055,0.0607,2.9441
+197cb37386efe162,capital_raise_rights_issue,product_launch_partnership,Capital raise / Rights issue,0.0534,0.0004,0.0538,0.0532,2.9444
+198ade582d564bc1,dividend,debt_bond_issue,Dividend,0.0533,0.0,0.0538,0.0526,2.9444
+198bc3b5f776a704,credit_ratings,debt_bond_issue,Credit & Ratings,0.0534,0.0003,0.0538,0.0526,2.9444
+198c15e0372538f6,share_buyback,debt_bond_issue,Share buyback,0.0534,0.0002,0.0539,0.0526,2.9444
+198c5d960b6750b6,debt_bond_issue,capital_raise_rights_issue,Debt / Bond issue,0.0541,0.0004,0.0537,0.0548,2.9444
+198ac6bd03fcf2d1,dividend,earnings_report,Dividend,0.0538,0.0005,0.0545,0.0526,2.9444
+198cb36c688af57e,legal_regulatory_compliance,earnings_report,Legal / Regulatory / Compliance,0.0543,0.0004,0.0545,0.056,2.9444
+19789b912027604e,share_buyback,other_corporate_update,Share buyback,0.0534,0.0002,0.0539,0.0543,2.9444
+198c17319b18a06e,credit_ratings,product_launch_partnership,Credit & Ratings,0.0533,0.0002,0.0535,0.0536,2.9444
+198c626c3df6b743,credit_ratings,product_launch_partnership,Credit & Ratings,0.0534,0.0,0.0534,0.0539,2.9444
+198e59ced05aabdd,share_buyback,legal_regulatory_compliance,Share buyback,0.0541,0.0006,0.054,0.0546,2.9444
+198f4699ca539c0f,share_buyback,equity_actions_non_buyback,Share buyback,0.0538,0.0004,0.0542,0.0544,2.9444
+198e571e20e3bcf9,credit_ratings,debt_bond_issue,Credit & Ratings,0.0538,0.0007,0.0535,0.0546,2.9444
+19903ea5270dc697,credit_ratings,equity_actions_non_buyback,Credit & Ratings,0.0543,0.0,0.054,0.0569,2.9443
+198bc1c169cb4d64,share_buyback,debt_bond_issue,Share buyback,0.0533,0.0002,0.054,0.0538,2.9444
+197c4ae1d50b856c,product_launch_partnership,other_corporate_update,Product / Launch / Partnership,0.0534,0.0001,0.0536,0.053,2.9444
+198bbf2dfb175ee5,dividend,debt_bond_issue,Dividend,0.0534,0.0002,0.0539,0.0541,2.9444
+198c61119e9527b1,debt_bond_issue,other_corporate_update,Debt / Bond issue,0.0533,0.0002,0.0535,0.0539,2.9444
+198ccc11b77f76f8,debt_bond_issue,earnings_report,Debt / Bond issue,0.0546,0.001,0.0549,0.0567,2.9444
+198bcf14ca9637f4,debt_bond_issue,earnings_report,Debt / Bond issue,0.0537,0.0002,0.0542,0.0542,2.9444
+198f117525301b5a,legal_regulatory_compliance,debt_bond_issue,Legal / Regulatory / Compliance,0.0537,0.0002,0.0531,0.0546,2.9444
+198a91d29c71d6d0,share_buyback,mna,Share buyback,0.0533,0.0003,0.0537,0.0531,2.9444
+198cc80465a49471,earnings_report,other_corporate_update,Earnings report,0.0532,0.0001,0.0532,0.0538,2.9444
+198cce96800fa347,product_launch_partnership,earnings_report,Product / Launch / Partnership,0.0534,0.0003,0.0536,0.0532,2.9444
+198bc685e3339a59,product_launch_partnership,agm_egm_governance,Product / Launch / Partnership,0.0538,0.0002,0.0537,0.0546,2.9444
+197aad2dc233a444,capital_raise_rights_issue,product_launch_partnership,Capital raise / Rights issue,0.0533,0.0002,0.0534,0.0547,2.9444
+197f37f2b0d789d8,earnings_report,personnel_management_change,Earnings report,0.0533,0.0,0.0537,0.053,2.9444
+197fa537e6fbe0e8,earnings_report,legal_regulatory_compliance,Earnings report,0.0537,0.0003,0.0538,0.0538,2.9444
+198a6f38c03614de,admission_delisting,earnings_report,Delisting / Trading halt,0.0533,0.0003,0.0537,0.0531,2.9444
+198ad3d22d8e320f,other_corporate_update,earnings_report,Other / Corporate update,0.0534,0.0,0.0539,0.0542,2.9444
+198f469a70573524,debt_bond_issue,earnings_report,Debt / Bond issue,0.0547,0.0014,0.0552,0.0543,2.9444
+198efcc806da741e,admission_listing,other_corporate_update,Admission / Listing,0.0534,0.0,0.0536,0.0536,2.9444
+197d4213b9e4e239,labor_workforce,mna,Labor / Workforce,0.0531,0.0,0.0534,0.0534,2.9444
+197ede58582615fd,share_buyback,mna,Share buyback,0.0533,0.0,0.0538,0.0534,2.9444
+198ec143f20530b6,equity_actions_non_buyback,legal_regulatory_compliance,Equity actions (non-buyback),0.0537,0.0002,0.0543,0.0531,2.9444
+198bc039b0f03d27,other_corporate_update,product_launch_partnership,Other / Corporate update,0.0542,0.0008,0.054,0.055,2.9444
+198e0fe4175662cf,share_buyback,product_launch_partnership,Share buyback,0.0531,0.0001,0.0534,0.0537,2.9444
+198c13c3b0f00010,personnel_management_change,labor_workforce,Personnel / Management change,0.0534,0.0002,0.0537,0.0539,2.9444
+198f0718691946fa,capital_raise_rights_issue,other_corporate_update,Capital raise / Rights issue,0.0534,0.0,0.0539,0.054,2.9444
+198aca2b8270b60c,incidents_controversies,product_launch_partnership,Incidents / Controversies,0.0539,0.0003,0.0537,0.0551,2.9444
+198cba6eeed5fdf0,incidents_controversies,other_corporate_update,Incidents / Controversies,0.0534,0.0,0.0537,0.054,2.9444
+19904983346241e9,incidents_controversies,product_launch_partnership,Incidents / Controversies,0.0567,0.0034,0.0534,0.0626,2.9443
+198eaa5fd25f4d0c,share_buyback,product_launch_partnership,Share buyback,0.0534,0.0003,0.054,0.0538,2.9444
+198c614decab1310,share_buyback,earnings_report,Share buyback,0.0534,0.0,0.0541,0.0545,2.9444
+198efcc871ca1030,labor_workforce,orders_contracts,Labor / Workforce,0.0536,0.0001,0.0538,0.0534,2.9444
+198e51265b9f4a7e,labor_workforce,other_corporate_update,Labor / Workforce,0.0537,0.0002,0.054,0.0537,2.9444
+198f484f30a4bf1a,labor_workforce,product_launch_partnership,Labor / Workforce,0.0537,0.0005,0.0535,0.0549,2.9444
+197d288011dac25e,admission_delisting,legal_regulatory_compliance,Delisting / Trading halt,0.0536,0.0003,0.0543,0.0529,2.9444
+197e883a23c06d45,share_buyback,mna,Share buyback,0.0532,0.0001,0.0535,0.0538,2.9444
+198f0fa76a89f61a,product_launch_partnership,legal_regulatory_compliance,Product / Launch / Partnership,0.0536,0.0003,0.0544,0.0537,2.9444
+198c6102555ee637,legal_regulatory_compliance,other_corporate_update,Legal / Regulatory / Compliance,0.0546,0.0001,0.0538,0.0583,2.9443
+198bbfa67cdb4195,product_launch_partnership,mna,Product / Launch / Partnership,0.0533,0.0001,0.0536,0.0532,2.9444
+1980a18b7c989e16,personnel_management_change,mna,Personnel / Management change,0.0534,0.0003,0.0534,0.0537,2.9444
+198bdad39413ea5b,mna,personnel_management_change,M&A,0.0536,0.0005,0.0537,0.0557,2.9444
+197b1641b576fa2d,mna,other_corporate_update,M&A,0.0536,0.0003,0.0539,0.054,2.9444
+198e59831e76db7a,mna,earnings_report,M&A,0.0558,0.0022,0.0539,0.0608,2.9443
+197edea18c3af3d4,orders_contracts,other_corporate_update,Orders / Contracts,0.0533,0.0002,0.0538,0.0533,2.9444
+198ac6be4061bfd2,share_buyback,orders_contracts,Share buyback,0.0532,0.0001,0.0535,0.0531,2.9444
+198c21c79707a00a,other_corporate_update,mna,Other / Corporate update,0.0537,0.0004,0.0539,0.0535,2.9444
+198c5f4bd5062fb9,orders_contracts,earnings_report,Orders / Contracts,0.0543,0.0005,0.0543,0.0543,2.9444
+198ebef9034ba7cd,share_buyback,orders_contracts,Share buyback,0.0532,0.0001,0.0536,0.0532,2.9444
+19873c6516146888,share_buyback,mna,Share buyback,0.0533,0.0,0.0538,0.0533,2.9444
+198ac350bf6818d9,other_corporate_update,orders_contracts,Other / Corporate update,0.0534,0.0003,0.0535,0.0539,2.9444
+198d041893330f76,other_corporate_update,orders_contracts,Other / Corporate update,0.0537,0.0003,0.0535,0.0539,2.9444
+198e5042fb1cd65b,debt_bond_issue,mna,Debt / Bond issue,0.0534,0.0001,0.0534,0.0535,2.9444
+198ef8d584b681f1,other_corporate_update,legal_regulatory_compliance,Other / Corporate update,0.054,0.0003,0.0538,0.0543,2.9444
+198e000e76d01741,product_launch_partnership,pdmr_managers_transactions,Product / Launch / Partnership,0.0536,0.0005,0.0541,0.053,2.9444
+1978219b50bec6fb,other_corporate_update,earnings_report,Other / Corporate update,0.0535,0.0005,0.0534,0.0543,2.9444
+1984fa79b9f0cd00,legal_regulatory_compliance,mna,Legal / Regulatory / Compliance,0.0532,0.0,0.0536,0.0533,2.9444
+1985f484170b181f,share_buyback,mna,Share buyback,0.0533,0.0003,0.0538,0.0531,2.9444
+198f469979d55750,credit_ratings,other_corporate_update,Credit & Ratings,0.0538,0.0006,0.0538,0.055,2.9444
+197f2ec657d9fd31,share_buyback,mna,Share buyback,0.0531,0.0,0.0534,0.0529,2.9444
+19837b13d73fb8f8,share_buyback,mna,Share buyback,0.0535,0.0001,0.0541,0.0535,2.9444
+198a8874930809ea,personnel_management_change,other_corporate_update,Personnel / Management change,0.0536,0.0003,0.0536,0.0543,2.9444
+198cb521e8de9aca,admission_delisting,capital_raise_rights_issue,Delisting / Trading halt,0.0533,0.0,0.0537,0.054,2.9444
+198cc725d759b73b,personnel_management_change,earnings_report,Personnel / Management change,0.0546,0.0009,0.0547,0.0573,2.9444
+19781bb569859cf6,other_corporate_update,mna,Other / Corporate update,0.0534,0.0003,0.0536,0.0533,2.9444
+197c9d409cc2cb37,share_buyback,mna,Share buyback,0.0535,0.0002,0.0539,0.0532,2.9444
+19841746e1746f7b,orders_contracts,product_launch_partnership,Orders / Contracts,0.0533,0.0002,0.0537,0.0543,2.9444
+198bcb6b3095b3cb,share_buyback,debt_bond_issue,Share buyback,0.0533,0.0001,0.0538,0.0531,2.9444
+198ea0182b084d54,equity_actions_non_buyback,legal_regulatory_compliance,Equity actions (non-buyback),0.0531,0.0001,0.0533,0.0531,2.9444
+19854fb7de3576d7,product_launch_partnership,mna,Product / Launch / Partnership,0.0537,0.0003,0.0536,0.0538,2.9444
+198bbfa559cd0d99,product_launch_partnership,mna,Product / Launch / Partnership,0.0533,0.0,0.0536,0.0532,2.9444
+198bc3501550d0fb,legal_regulatory_compliance,share_buyback,Legal / Regulatory / Compliance,0.0541,0.0004,0.0548,0.0547,2.9444
+198c6f997980843b,product_launch_partnership,other_corporate_update,Product / Launch / Partnership,0.0533,0.0003,0.0536,0.0531,2.9444
+198c7e323c3fe344,agm_egm_governance,legal_regulatory_compliance,AGM/EGM & governance,0.0545,0.0006,0.0544,0.0555,2.9443
+198c610a20d60d70,share_buyback,equity_actions_non_buyback,Share buyback,0.0538,0.0,0.0546,0.0535,2.9444

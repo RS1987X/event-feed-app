@@ -1,0 +1,2 @@
+[console_scripts]
+event-feed-run = event_feed_app.pipeline.orchestrator:main
