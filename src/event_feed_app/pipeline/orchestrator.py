@@ -14,16 +14,23 @@ from event_feed_app.preprocessing.company_name_remover import clean_df_from_comp
 from event_feed_app.preprocessing.subset import pick_diverse_subset
 
 from event_feed_app.utils.io import load_from_gcs, append_row
-from event_feed_app.utils.text import build_doc_for_embedding
+#from event_feed_app.utils.text import build_doc_for_embedding
+from event_feed_app.representation.prompts import (
+    doc_prompt, cat_prompts_e5_query, PromptStyle
+)
 from event_feed_app.utils.lang import setup_langid, detect_language_batch, normalize_lang
-from event_feed_app.utils.math import softmax_rows, entropy_rows
+from event_feed_app.utils.math import softmax_rows, entropy_rows, l2_normalize_rows, apply_abtt, fit_abtt,rowwise_standardize
 
 from event_feed_app.models.embeddings import get_embedding_model, encode_texts
 from event_feed_app.models.tfidf import multilingual_tfidf_cosine
 
 # taxonomy adapter (single source of truth)
 from event_feed_app.taxonomy.adapters import load as load_taxonomy
-from event_feed_app.taxonomy.adapters import texts_lsa, texts_emb, align_texts
+#from event_feed_app.taxonomy.adapters import texts_lsa, texts_emb, align_texts
+from event_feed_app.taxonomy.ops import align_texts
+from event_feed_app.representation.tfidf_texts import texts_lsa
+#from event_feed_app.representation.prompts import cat_prompts_e5_query
+
 
 from event_feed_app.pipeline.consensus import (
     decide, neighbor_consistency_scores, consensus_by_dup_group
@@ -121,17 +128,47 @@ def run(cfg: Settings):
 
     # texts for models
     cat_texts_lsa_default = texts_lsa(tax_base)
-    cat_texts_emb         = texts_emb(tax_base, e5_prefix=cfg.e5_prefix)
+    # cat_texts_emb         = cat_prompts_e5_query(tax_base, e5_prefix=cfg.e5_prefix)
+
 
     # 5) Embeddings
+    docs_for_emb = [doc_prompt(t, b, style=PromptStyle.E5_PASSAGE)
+                    for t, b in zip(base_df["title_clean"], base_df["full_text_clean"])]
+
+    cat_texts_emb = cat_prompts_e5_query(tax_base)
+
+
     model = get_embedding_model(cfg.emb_model_name, cfg.max_seq_tokens)
-    docs_for_emb = [
-        build_doc_for_embedding(t, b, cfg.e5_prefix)
-        for t, b in zip(base_df["title_clean"].tolist(), base_df["full_text_clean"].tolist())
-    ]
+    # docs_for_emb = [
+    #     build_doc_for_embedding(t, b, cfg.e5_prefix)
+    #     for t, b in zip(base_df["title_clean"].tolist(), base_df["full_text_clean"].tolist())
+    # ]
+
     X = encode_texts(model, docs_for_emb, cfg.emb_batch_size)  # (N, d)
     Q = encode_texts(model, cat_texts_emb, cfg.emb_batch_size) # (C, d)
 
+    # 1) debias geometry on document distribution (fit on X; you can also fit on np.vstack([X,Q]))
+    mu, P = fit_abtt(X, k=getattr(cfg, "emb_abtt_k", 2))
+    X_d = apply_abtt(X, mu, P)
+    Q_d = apply_abtt(Q, mu, P)
+
+    # 2) normalize after debiasing
+    Xn = l2_normalize_rows(X_d)
+    Qn = l2_normalize_rows(Q_d)
+
+    # 3) cosine sims
+    sims_emb = Xn @ Qn.T
+
+
+
+    # # 4) (optional but recommended) row-wise standardize + temperature to restore contrast
+    # if getattr(cfg, "emb_rowwise_standardize", True):
+    #     sims_emb = sims_emb - sims_emb.mean(axis=1, keepdims=True)
+    #     sims_emb = sims_emb / (sims_emb.std(axis=1, keepdims=True) + 1e-8)
+
+    # tau = getattr(cfg, "emb_temperature", 0.35)  # 0.25–0.6 works well; tune
+    # sims_emb = sims_emb / tau  # if you later softmax, this sharpens posteriors
+    
     # 6) Language detection
     langid = setup_langid(cfg.lang_whitelist)
     langs, lang_confs = detect_language_batch(base_df["title_clean"], base_df["full_text_clean"], langid=langid)
@@ -140,7 +177,7 @@ def run(cfg: Settings):
 
     # 7) Near-dedup (embedding space)
     base_df, X, near_dedupe_stats, rep_keep_idx = near_dedup_embeddings(
-        base_df, X, threshold=0.97, drop=False, RUN_TS=run_id,
+        base_df, X, threshold=0.98, drop=False, RUN_TS=run_id,
         rep_strategy="lang_conf", lang_conf_col="lang_conf",
         NEAR_DUP_AUDIT_CSV="near_dedup_audit.csv"
     )
@@ -163,10 +200,15 @@ def run(cfg: Settings):
         lang_to_translated_cats=lang_to_translated_cats,
     )
 
+    # 1) Row-wise standardize similarities (per document)
+    S_emb = rowwise_standardize(sims_emb)          # from cosine(Xn @ Qn.T)
+    S_lsa = rowwise_standardize(sims_lsa)          # from multilingual_tfidf_cosine(...)
+
+
     # 9) Fusion
-    sims_emb = X @ Q.T
-    P_emb = softmax_rows(sims_emb, T=cfg.temp_emb)
-    P_lsa = softmax_rows(sims_lsa, T=cfg.temp_lsa)
+    P_emb = softmax_rows(S_emb, T=cfg.temp_emb)
+    P_lsa = softmax_rows(S_lsa, T=cfg.temp_lsa)
+    
     P_fused = cfg.fuse_alpha * P_emb + (1.0 - cfg.fuse_alpha) * P_lsa
 
     # 10) Decisions

@@ -23,9 +23,9 @@ from sklearn.neighbors import NearestNeighbors
 
 # External modules you already have
 from src.event_feed_app.gating.housekeeping_gate import apply_housekeeping_filter
-from dedup_utils import dedup_df
-from near_dedup import near_dedup_embeddings
-from company_name_remover import clean_df_from_company_names
+from src.event_feed_app.preprocessing.dedup_utils import dedup_df
+from src.event_feed_app.preprocessing.near_dedup import near_dedup_embeddings
+from src.event_feed_app.preprocessing.company_name_remover import clean_df_from_company_names
 from event_taxonomies import l1_v3_en
 from event_taxonomies.keyword_rules import keywords
 from event_taxonomies.taxonomy_rules_classifier import classify_batch, classify_press_release

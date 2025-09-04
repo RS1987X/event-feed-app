@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from sklearn.preprocessing import normalize
+from event_feed_app.utils.math import l2_normalize_rows
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import os
@@ -47,7 +48,7 @@ def write_near_dup_audit_csv(
     df["__pos"] = np.arange(len(df))
 
     # Normalize embeddings for cosine similarity
-    Xn = normalize(X, norm="l2", copy=True)
+    Xn = l2_normalize_rows(X, copy=True)
 
     # Safe accessors
     def _get(row: pd.Series, col: str, default=""):

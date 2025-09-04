@@ -39,7 +39,7 @@ class Settings:
 
     # -------- Fusion/temps -----
     fuse_alpha: float     = float(os.getenv("FUSE_ALPHA", "0.6"))
-    temp_emb: float       = float(os.getenv("TEMP_EMB", "1.0"))
+    temp_emb: float       = float(os.getenv("TEMP_EMB", "0.6"))
     temp_lsa: float       = float(os.getenv("TEMP_LSA", "0.8"))
 
     # -------- Thresholds -------
@@ -59,9 +59,9 @@ class Settings:
     #------------Abstain other--------
     abstain_enable: bool = _env_bool("ABSTAIN_ENABLE", True)
     abstain_other_cid: str = os.getenv("ABSTAIN_OTHER_CID", "other_corporate_update")
-    abstain_min_prob: float = float(os.getenv("ABSTAIN_MIN_PROB", "0.0534"))
-    abstain_min_margin: float = float(os.getenv("ABSTAIN_MIN_MARGIN", "0.0002"))
-    abstain_min_lang_conf: float = float(os.getenv("ABSTAIN_MIN_LANG_CONF", "0.70"))
+    abstain_min_prob: float = float(os.getenv("ABSTAIN_MIN_PROB", "0.08"))
+    abstain_min_margin: float = float(os.getenv("ABSTAIN_MIN_MARGIN", "0.03"))
+    abstain_min_lang_conf: float = float(os.getenv("ABSTAIN_MIN_LANG_CONF", "0.40"))
     abstain_require_agreement: bool = _env_bool("ABSTAIN_REQUIRE_AGREEMENT", False)
 
 

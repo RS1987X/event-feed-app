@@ -1,28 +1,8 @@
-from dataclasses import dataclass
+
 from importlib import import_module
 from functools import lru_cache
 from typing import List
-
-# ---- canonical data shapes ----
-@dataclass(frozen=True)
-class Category:
-    cid: str
-    name: str
-    desc: str
-
-@dataclass(frozen=True)
-class Taxonomy:
-    version: str
-    lang: str
-    categories: List[Category]
-
-    @property
-    def ordered_cids(self) -> List[str]:
-        return [c.cid for c in self.categories]
-
-    @property
-    def cid2name(self) -> dict:
-        return {c.cid: c.name for c in self.categories}
+from event_feed_app.taxonomy.schema import Category, Taxonomy
 
 # ---- internal loader for your existing files ----
 def _mod_path(version: str, lang: str) -> str:
@@ -48,29 +28,6 @@ def load(version: str, lang: str = "en", *, fallback_to_en: bool = True) -> Taxo
         lang = "en"
     cats = [Category(*t) for t in triples]
     return Taxonomy(version=version, lang=lang, categories=cats)
-
-def texts_lsa(tax: Taxonomy) -> List[str]:
-    """ '<name>. <desc>' in taxonomy CID order (for TF-IDF). """
-    return [f"{c.name}. {c.desc}".strip(". ") for c in tax.categories]
-
-def texts_emb(tax: Taxonomy, *, e5_prefix: bool) -> List[str]:
-    """ Query strings for embedding models (e5 optional prefix). """
-    qs = [f"category: {c.name}. description: {c.desc}" for c in tax.categories]
-    return [("query: " + q) if e5_prefix else q for q in qs]
-
-def align_texts(base: Taxonomy, localized: Taxonomy) -> List[str]:
-    """
-    Build localized '<name>. <desc>' but strictly in the CID order of `base`.
-    Missing CIDs produce empty strings so alignment never breaks.
-    """
-    loc_by_cid = {c.cid: (c.name, c.desc) for c in localized.categories}
-    out = []
-    for c in base.categories:
-        name, desc = loc_by_cid.get(c.cid, ("", ""))
-        out.append(f"{name}. {desc}".strip(". "))
-    return out
-
-
 
 from importlib import import_module
 

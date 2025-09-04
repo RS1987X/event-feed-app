@@ -13,9 +13,9 @@ from bs4 import BeautifulSoup
 import re
 
 from sentence_transformers import SentenceTransformer
-from housekeeping_gate import apply_housekeeping_filter
-from dedup_utils import dedup_df
-from near_dedup import near_dedup_embeddings
+from src.event_feed_app.gating.housekeeping_gate import apply_housekeeping_filter
+from src.event_feed_app.preprocessing.dedup_utils import dedup_df
+from src.event_feed_app.preprocessing.near_dedup import near_dedup_embeddings
 
 
 FUSE_ALPHA = float(os.getenv("FUSE_ALPHA", "0.6"))  # weight for embeddings in fusion

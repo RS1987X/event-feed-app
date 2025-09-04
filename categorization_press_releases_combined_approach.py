@@ -13,10 +13,10 @@ import re
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sentence_transformers import SentenceTransformer
-from housekeeping_gate import apply_housekeeping_filter
-from dedup_utils import dedup_df
-from near_dedup import near_dedup_embeddings
-from company_name_remover import clean_df_from_company_names
+from src.event_feed_app.gating.housekeeping_gate import apply_housekeeping_filter
+from src.event_feed_app.preprocessing.dedup_utils import dedup_df
+from src.event_feed_app.preprocessing.near_dedup import near_dedup_embeddings
+from src.event_feed_app.preprocessing.company_name_remover import clean_df_from_company_names
 
 from sklearn.pipeline import make_pipeline
 from sklearn.feature_extraction.text import HashingVectorizer
