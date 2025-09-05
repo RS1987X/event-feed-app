@@ -1,0 +1,140 @@
+{
+  "assignments_file": "./outputs/assignments_2025-09-05T150041Z.csv",
+  "labels_file": "data/labeling/labeling_pool_2025-09-01.csv",
+  "n_truth_total": 190,
+  "n_truth_mappable": 190,
+  "n_joined": 190,
+  "accuracy": 0.39473684210526316,
+  "f1_micro": 0.39473684210526316,
+  "f1_macro": 0.3489747392843368,
+  "f1_weighted": 0.39477561848769277,
+  "per_class": {
+    "earnings_report": {
+      "precision": 0.6666666666666666,
+      "recall": 0.23076923076923078,
+      "f1-score": 0.34285714285714286,
+      "support": 26.0
+    },
+    "share_buyback": {
+      "precision": 0.4444444444444444,
+      "recall": 0.5,
+      "f1-score": 0.47058823529411764,
+      "support": 8.0
+    },
+    "dividend": {
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1-score": 0.6666666666666666,
+      "support": 1.0
+    },
+    "agm_egm_governance": {
+      "precision": 0.5,
+      "recall": 0.16666666666666666,
+      "f1-score": 0.25,
+      "support": 6.0
+    },
+    "capital_raise_rights_issue": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 3.0
+    },
+    "pdmr_managers_transactions": {
+      "precision": 1.0,
+      "recall": 0.5714285714285714,
+      "f1-score": 0.7272727272727273,
+      "support": 7.0
+    },
+    "admission_listing": {
+      "precision": 0.45454545454545453,
+      "recall": 0.8333333333333334,
+      "f1-score": 0.5882352941176471,
+      "support": 6.0
+    },
+    "debt_bond_issue": {
+      "precision": 0.5,
+      "recall": 0.5384615384615384,
+      "f1-score": 0.5185185185185185,
+      "support": 13.0
+    },
+    "mna": {
+      "precision": 0.6470588235294118,
+      "recall": 0.4782608695652174,
+      "f1-score": 0.55,
+      "support": 23.0
+    },
+    "orders_contracts": {
+      "precision": 0.7,
+      "recall": 0.5,
+      "f1-score": 0.5833333333333334,
+      "support": 14.0
+    },
+    "product_launch_partnership": {
+      "precision": 0.4444444444444444,
+      "recall": 0.19047619047619047,
+      "f1-score": 0.26666666666666666,
+      "support": 21.0
+    },
+    "personnel_management_change": {
+      "precision": 0.2894736842105263,
+      "recall": 0.9166666666666666,
+      "f1-score": 0.44,
+      "support": 12.0
+    },
+    "legal_regulatory_compliance": {
+      "precision": 0.5,
+      "recall": 0.4,
+      "f1-score": 0.4444444444444444,
+      "support": 15.0
+    },
+    "credit_ratings": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 0.0
+    },
+    "equity_actions_non_buyback": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 3.0
+    },
+    "labor_workforce": {
+      "precision": 0.25,
+      "recall": 0.6666666666666666,
+      "f1-score": 0.36363636363636365,
+      "support": 3.0
+    },
+    "incidents_controversies": {
+      "precision": 0.14285714285714285,
+      "recall": 0.5,
+      "f1-score": 0.2222222222222222,
+      "support": 2.0
+    },
+    "admission_delisting": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 2.0
+    },
+    "other_corporate_update": {
+      "precision": 0.19230769230769232,
+      "recall": 0.2,
+      "f1-score": 0.19607843137254902,
+      "support": 25.0
+    },
+    "accuracy": 0.39473684210526316,
+    "macro avg": {
+      "precision": 0.38062096594767286,
+      "recall": 0.40488051231758326,
+      "f1-score": 0.3489747392843368,
+      "support": 190.0
+    },
+    "weighted avg": {
+      "precision": 0.48131020365581223,
+      "recall": 0.39473684210526316,
+      "f1-score": 0.3947756184876929,
+      "support": 190.0
+    }
+  }
+}

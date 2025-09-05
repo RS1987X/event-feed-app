@@ -33,7 +33,9 @@ def apply_abstain_other_gate(
     # Don't bother if already OTHER
     already_other = df["ml_pred_cid"].astype(str).eq(other_cid) | df["final_cid"].astype(str).eq(other_cid)
 
-    route_mask = mask_ml & ~already_other & (cond_prob | cond_margin | cond_lang | cond_disagree)
+    #route_mask = mask_ml & ~already_other & (cond_prob | cond_margin | cond_lang | cond_disagree)
+    route_mask = mask_ml & ~already_other & (cond_prob | cond_margin | cond_disagree)
+    
     n = int(route_mask.sum())
     if n:
         df.loc[route_mask, "final_cid"]    = other_cid

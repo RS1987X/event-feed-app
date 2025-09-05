@@ -41,7 +41,7 @@ from event_feed_app.evaluation.metrics import report_rule_metrics
 
 # rules
 from event_feed_app.taxonomy.keyword import keywords
-from event_feed_app.taxonomy.rules_classifier import classify_batch
+from event_feed_app.models.rules_classifier import classify_batch
 from event_feed_app.gating.abstain_other_gate import apply_abstain_other_gate
 
 def setup_logging(level: str):
@@ -208,7 +208,7 @@ def run(cfg: Settings):
     # 9) Fusion
     P_emb = softmax_rows(S_emb, T=cfg.temp_emb)
     P_lsa = softmax_rows(S_lsa, T=cfg.temp_lsa)
-    
+
     P_fused = cfg.fuse_alpha * P_emb + (1.0 - cfg.fuse_alpha) * P_lsa
 
     # 10) Decisions
