@@ -1,5 +1,5 @@
 # src/event_feed_app/config.py
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 import os
 from typing import Optional, Dict, Any
 
@@ -14,16 +14,21 @@ DEFAULT_LANG_WHITELIST = "en,sv,fi,da,no,de,fr,is"
 
 def _env_bool(name, default=False):
     v = os.getenv(name)
-    if v is None: return default
-    return str(v).strip().lower() in {"1","true","yes","y","on"}
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 @dataclass(frozen=True)
 class Settings:
     # -------- General ----------
-    taxonomy_version: str = os.getenv("TAXONOMY_VERSION", "v3")
+    taxonomy_version: str = os.getenv("TAXONOMY_VERSION", "v4")
     lang_whitelist: str   = os.getenv("LANG_WHITELIST", DEFAULT_LANG_WHITELIST)
     run_metrics_csv: str  = os.getenv("RUN_METRICS_CSV", "outputs/runs_metrics_v2.csv")
     log_level: str        = os.getenv("LOG_LEVEL", "INFO")
+
+    # -------- Raw cache for orchestrator (no sims, no rules) -------
+    use_raw_cache: bool = bool(int(os.getenv("USE_RAW_CACHE", True)))
+    raw_cache_file: str  = os.getenv("RAW_CACHE_FILE", ".cache/tune_pipeline/")
 
     # -------- IO ---------------
     gcs_silver_root: str  = os.getenv("GCS_SILVER_ROOT", "event-feed-app-data/silver_normalized/table=press_releases")
@@ -45,25 +50,44 @@ class Settings:
     # -------- Thresholds -------
     cat_assign_min_sim: float = float(os.getenv("CAT_ASSIGN_MIN_SIM", "0.055"))
     cat_low_margin: float     = float(os.getenv("CAT_LOW_MARGIN", "0.001"))
-    rule_conf_thr: float      = float(os.getenv("RULE_CONF_THR", "0.75"))
+    rule_conf_thr: float      = float(os.getenv("RULE_CONF_THR", "0.0"))
 
     # -------- Subset/knn -------
-    use_subset: bool      = bool(int(os.getenv("USE_SUBSET", "0")))
-    subset_clusters: int  = int(os.getenv("SUBSET_CLUSTERS", "100"))
+    use_subset: bool       = bool(int(os.getenv("USE_SUBSET", "0")))
+    subset_clusters: int   = int(os.getenv("SUBSET_CLUSTERS", "100"))
     subset_per_cluster: int= int(os.getenv("SUBSET_PER_CLUSTER", "6"))
-    knn_k: int            = int(os.getenv("KNN_K", "10"))
+    knn_k: int             = int(os.getenv("KNN_K", "10"))
+
+    # -------- Labeled-only filtering -------
+    filter_to_labeled: bool        = _env_bool("FILTER_TO_LABELED", True)
+    labeling_path: str             = os.getenv("LABELING_PATH", "data/labeling/labeling_pool_2025-09-01.csv")
+    labeling_id_col: str           = os.getenv("LABELING_ID_COL", "press_release_id")
+    filter_fail_on_empty: bool     = _env_bool("FILTER_FAIL_ON_EMPTY", True)
+    filter_warn_on_missing: bool   = _env_bool("FILTER_WARN_ON_MISSING", False)
 
     # -------- Text -------------
-    snippet_chars: int    = int(os.getenv("SNIPPET_CHARS", "600"))
+    snippet_chars: int     = int(os.getenv("SNIPPET_CHARS", "600"))
 
-    #------------Abstain other--------
-    abstain_enable: bool = _env_bool("ABSTAIN_ENABLE", True)
-    abstain_other_cid: str = os.getenv("ABSTAIN_OTHER_CID", "other_corporate_update")
-    abstain_min_prob: float = float(os.getenv("ABSTAIN_MIN_PROB", "0.08"))
-    abstain_min_margin: float = float(os.getenv("ABSTAIN_MIN_MARGIN", "0.03"))
-    abstain_min_lang_conf: float = float(os.getenv("ABSTAIN_MIN_LANG_CONF", "0.40"))
-    abstain_require_agreement: bool = _env_bool("ABSTAIN_REQUIRE_AGREEMENT", False)
+    # -------- Abstain→OTHER ----
+    abstain_enable: bool           = _env_bool("ABSTAIN_ENABLE", False)
+    abstain_other_cid: str         = os.getenv("ABSTAIN_OTHER_CID", "other_corporate_update")
+    abstain_min_prob: float        = float(os.getenv("ABSTAIN_MIN_PROB", "0.08"))
+    abstain_min_margin: float      = float(os.getenv("ABSTAIN_MIN_MARGIN", "0.03"))
+    abstain_min_lang_conf: float   = float(os.getenv("ABSTAIN_MIN_LANG_CONF", "0.40"))
+    abstain_require_agreement: bool= _env_bool("ABSTAIN_REQUIRE_AGREEMENT", False)
 
+    # -------- KWEX tuned config (NEW) -------
+    # Path to the tuned keywords+exclusions JSON produced by calibrate_kwex.py
+    # Leave empty to skip tuning (defaults from code will be used).
+    kwex_config_json: str = os.getenv(
+        "KWEX_CONFIG_JSON",
+        "src/event_feed_app/configs/kwex/kwex_tuned.json"  # e.g. "src/event_feed_app/configs/kwex/kwex_tuned.json"
+    )
+
+    pipeline_config_json: str = os.getenv(
+        "PIPELINE_CONFIG_JSON",
+        "src/event_feed_app/configs/pipeline_tuned.json" #src/event_feed_app/configs/pipeline_tuned.json
+    )
 
     # helper: convert to dict (useful for logging)
     def to_dict(self) -> Dict[str, Any]:
@@ -78,5 +102,4 @@ class Settings:
         base = Settings()
         current = base.to_dict()
         current.update({k: v for k, v in kwargs.items() if k in current and v is not None})
-        # rebuild frozen dataclass with updates
         return Settings(**current)  # type: ignore[arg-type]

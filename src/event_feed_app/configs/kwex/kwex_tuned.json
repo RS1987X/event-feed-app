@@ -1,0 +1,33 @@
+{
+  "weights": {
+    "must_all": 2.3085749447976207,
+    "must_any": 1.0315496566211237,
+    "any": 0.6476463080811913,
+    "context": 0.5408211479561853,
+    "treat_must_any_as_boolean": false
+  },
+  "competition": {
+    "alpha": 0.2777753598020385,
+    "hit_cap": 4.628709956440514,
+    "min_competitor_score": 0.7194802460041125,
+    "pair_multipliers": {},
+    "mode": "strength"
+  },
+  "gating": {
+    "exclude_is_hard_veto": true
+  },
+  "review": {
+    "score_threshold": 0.868051181052853,
+    "total_terms_threshold": 4
+  },
+  "confidence": {
+    "base_key": "keywords+exclusions",
+    "fallback_key": "fallback",
+    "strong_hit_cap": 3,
+    "competitor_count_cap": 3,
+    "per_strong_hit_bump": 0.06,
+    "per_competitor_deduction": 0.08,
+    "min_conf": 0.2,
+    "max_conf": 0.85
+  }
+}

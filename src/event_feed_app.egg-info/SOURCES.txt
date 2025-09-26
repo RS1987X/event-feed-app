@@ -46,3 +46,4 @@ src/event_feed_app/utils/text.py
 tests/test_company_matching.py
 tests/test_oldb_store.py
 tests/test_pollers.py
+recursive-include event_feed_app/taxonomy/keywords *.json

@@ -1,48 +1,94 @@
-import os, json, logging, logging.config
+# --- Standard library ---
+import json
+import logging
+import logging.config
+import os
 from datetime import datetime, timezone
 
+# --- Third-party ---
 import numpy as np
 import pandas as pd
 
+# --- App config ---
 from event_feed_app.config import Settings
+from event_feed_app.configs.kwex.kwex_utils import load_kwex_snapshot
+from event_feed_app.configs.pipeline_utils import load_pipeline_snapshot
 
+# --- Gating ---
+from event_feed_app.gating.abstain_other_gate import apply_abstain_other_gate
 from event_feed_app.gating.housekeeping_gate import apply_housekeeping_filter
+from event_feed_app.gating.newsletter_quotes_gate import apply_newsletter_gate
 
-from event_feed_app.preprocessing.dedup_utils import dedup_df
-from event_feed_app.preprocessing.near_dedup import near_dedup_embeddings
+# --- Preprocessing ---
 from event_feed_app.preprocessing.company_name_remover import clean_df_from_company_names
+from event_feed_app.preprocessing.dedup_utils import dedup_df
+from event_feed_app.preprocessing.filters import filter_to_labeled
+from event_feed_app.preprocessing.near_dedup import near_dedup_embeddings
 from event_feed_app.preprocessing.subset import pick_diverse_subset
 
-from event_feed_app.utils.io import load_from_gcs, append_row
-#from event_feed_app.utils.text import build_doc_for_embedding
-from event_feed_app.representation.prompts import (
-    doc_prompt, cat_prompts_e5_query, PromptStyle
+# --- Utilities ---
+from event_feed_app.utils.io import append_row, load_from_gcs
+from event_feed_app.utils.lang import detect_language_batch, normalize_lang, setup_langid
+from event_feed_app.utils.math import (
+    apply_abtt,
+    entropy_rows,
+    fit_abtt,
+    l2_normalize_rows,
+    rowwise_standardize,
+    softmax_rows,
 )
-from event_feed_app.utils.lang import setup_langid, detect_language_batch, normalize_lang
-from event_feed_app.utils.math import softmax_rows, entropy_rows, l2_normalize_rows, apply_abtt, fit_abtt,rowwise_standardize
+from event_feed_app.tools.tune_pipeline import load_raw_cache
+# from event_feed_app.utils.text import build_doc_for_embedding  # (optional)
 
-from event_feed_app.models.embeddings import get_embedding_model, encode_texts
+# --- Representation / prompts ---
+from event_feed_app.representation.prompts import (
+    PromptStyle,
+    cat_prompts_e5_query,
+    doc_prompt,
+)
+from event_feed_app.representation.tfidf_texts import texts_lsa
+# from event_feed_app.representation.prompts import cat_prompts_e5_query  # (duplicate alt import)
+
+# --- Models ---
+from event_feed_app.models.embeddings import encode_texts, get_embedding_model
 from event_feed_app.models.tfidf import multilingual_tfidf_cosine
 
-# taxonomy adapter (single source of truth)
+# --- Taxonomy (single source of truth) ---
 from event_feed_app.taxonomy.adapters import load as load_taxonomy
-#from event_feed_app.taxonomy.adapters import texts_lsa, texts_emb, align_texts
 from event_feed_app.taxonomy.ops import align_texts
-from event_feed_app.representation.tfidf_texts import texts_lsa
-#from event_feed_app.representation.prompts import cat_prompts_e5_query
 
+# --- Rules ---
+from event_feed_app.taxonomy.keywords.keyword import (
+    keywords, SCHEMA_VERSION, LEXICON_VERSION, TAXONOMY_VERSION, SOURCE as KW_SOURCE
+)
+from event_feed_app.taxonomy.rules_engine import classify_batch
+import event_feed_app.taxonomy.rules.keywords_generic          # noqa: F401
+import event_feed_app.taxonomy.rules.product_launch_partn  # noqa: F401
+import event_feed_app.taxonomy.rules.admissions          # noqa: F401
+import event_feed_app.taxonomy.rules.agm  # noqa: F401
+import event_feed_app.taxonomy.rules.debt          # noqa: F401
+import event_feed_app.taxonomy.rules.regulatory  # noqa: F401
+import event_feed_app.taxonomy.rules.incidents          # noqa: F401
+import event_feed_app.taxonomy.rules.invite  # noqa: F401
+import event_feed_app.taxonomy.rules.mna          # noqa: F401
+import event_feed_app.taxonomy.rules.orders  # noqa: F401
+import event_feed_app.taxonomy.rules.pdmr          # noqa: F401
+import event_feed_app.taxonomy.rules.personnel  # noqa: F401
+import event_feed_app.taxonomy.rules.ratings          # noqa: F401
+import event_feed_app.taxonomy.rules.rd_clinical_update          # noqa: F401
+import event_feed_app.taxonomy.rules.earnings          # noqa: F401
 
+# --- Pipeline helpers ---
 from event_feed_app.pipeline.consensus import (
-    decide, neighbor_consistency_scores, consensus_by_dup_group
+    consensus_by_dup_group,
+    decide,
+    neighbor_consistency_scores,
 )
 from event_feed_app.pipeline.outputs import build_output_df, summarize_run
 
+# --- Evaluation ---
 from event_feed_app.evaluation.metrics import report_rule_metrics
 
-# rules
-from event_feed_app.taxonomy.keyword import keywords
-from event_feed_app.models.rules_classifier import classify_batch
-from event_feed_app.gating.abstain_other_gate import apply_abstain_other_gate
 
 def setup_logging(level: str):
     level = (level or "INFO").upper()
@@ -65,21 +111,84 @@ def setup_logging(level: str):
     for noisy in ["urllib3", "gcsfs", "fsspec", "sentence_transformers", "transformers"]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+# # 👇 define a module-level logger
+# logger = logging.getLogger(__name__)
+
+# def run(cfg: Settings):
+#     run_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+
+#     setup_logging(cfg.log_level)
+
+#     # 1) Load & housekeeping
+#     df = load_from_gcs(cfg.gcs_silver_root)
+#     df, stats = apply_housekeeping_filter(df)
+#     print(f"Housekeeping filter skipped {stats['skipped']} / {stats['total']} "
+#           f"({(stats['skipped']/max(stats['total'],1))*100:.1f}%).")
+
+# 👇 module-level logger (ok to keep at top of file)
+logger = logging.getLogger(__name__)
 
 def run(cfg: Settings):
     run_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
-
     setup_logging(cfg.log_level)
 
-    # 1) Load & housekeeping
-    df = load_from_gcs(cfg.gcs_silver_root)
-    df, stats = apply_housekeeping_filter(df)
-    print(f"Housekeeping filter skipped {stats['skipped']} / {stats['total']} "
-          f"({(stats['skipped']/max(stats['total'],1))*100:.1f}%).")
+     # 👇 confirm exactly which keywords file is active
+    logger.info(
+        "KWEX keywords loaded from %s (schema=%s, lexicon=%s, taxonomy=%s)",
+        KW_SOURCE, SCHEMA_VERSION, LEXICON_VERSION, TAXONOMY_VERSION
+    )
+
+
+    # (optional) verify what got registered
+    from event_feed_app.taxonomy.rules import REGISTRY
+    logger.info("Active rules: %s", [r.__class__.__name__ for r in REGISTRY])
+
+
+    # 1) Load data (either from raw cache or from GCS)
+    if cfg.use_raw_cache:
+        df = load_raw_cache(cfg.raw_cache_file)
+        logger.info("Loaded %d rows from RAW cache: %s", len(df), cfg.raw_cache_file)
+        # If your raw cache is NOT guaranteed to be gated/deduped, uncomment:
+        # df, nl_stats = apply_newsletter_gate(
+        #     df, title_col="title_clean", body_col="full_text_clean", drop=True
+        # )
+        # logger.info("[gate] Newsletter/quote routed: %d / %d (kept=%d)",
+        #             nl_stats["gated"], nl_stats["total"], len(df))
+        base_df = df.copy()  # <<< ensure base_df exists in this branch
+    else:
+        # 1) Load & housekeeping
+        df = load_from_gcs(cfg.gcs_silver_root)
+    
+    df, hk_stats = apply_housekeeping_filter(df)
+    logger.info(
+        "Housekeeping filter skipped %d / %d (%.1f%%).",
+        hk_stats["skipped"], hk_stats["total"],
+        (hk_stats["skipped"] / max(hk_stats["total"], 1)) * 100.0,
+    )
+
+    # 2) Filter to labeled only (optional, from config)
+    if cfg.filter_to_labeled:
+        try:
+            df, stats = filter_to_labeled(
+                df_main=df,
+                labeling=cfg.labeling_path,
+                id_col=cfg.labeling_id_col,
+            )
+            logger.info("filter_to_labeled: %s", stats)
+        except FileNotFoundError as e:
+            if cfg.filter_warn_on_missing:
+                logger.warning("filter_to_labeled skipped (missing file): %s", e)
+            else:
+                raise
+        if cfg.filter_fail_on_empty and len(df) == 0:
+            raise RuntimeError(
+                "filter_to_labeled left 0 rows. "
+                f"(file={cfg.labeling_path}, id_col={cfg.labeling_id_col})"
+            )
 
     df = clean_df_from_company_names(df)
 
-    # 2) Hard dedup (id+content)
+    # 3) Hard dedup (id+content)
     df, dd_stats = dedup_df(
         df,
         id_col="press_release_id",
@@ -87,14 +196,37 @@ def run(cfg: Settings):
         body_col="full_text_clean",
         ts_col="release_date",
     )
-    print(dd_stats)
+    logger.info("[dedup] %s", dd_stats)
 
-    # 3) Optional diverse subset
-    base_df = pick_diverse_subset(
-        df, "full_text_clean",
-        cfg.subset_clusters, cfg.subset_per_cluster
-    ) if cfg.use_subset else df
+    # 4) Newsletter/quote gate — DROP in place and make this the ONLY dataframe
+    df, nl_stats = apply_newsletter_gate(
+        df,
+        title_col="title_clean",
+        body_col="full_text_clean",
+        drop=True,
+    )
+    logger.info("[gate] Newsletter/quote routed: %d / %d (kept=%d)",
+                nl_stats["gated"], nl_stats["total"], len(df))
+
+    base_df = df.copy()
+
+    # Optional diverse subset
+    if cfg.use_subset:
+        base_df = pick_diverse_subset(
+            base_df, "full_text_clean",
+            cfg.subset_clusters, cfg.subset_per_cluster
+        )
     base_df = base_df.reset_index(drop=True)
+
+    # Load tuned KWEX knobs if configured and present
+    if getattr(cfg, "kwex_config_json", "") and os.path.exists(cfg.kwex_config_json):
+        try:
+            load_kwex_snapshot(cfg.kwex_config_json)
+            logger.info("Loaded tuned KWEX knobs from %s", cfg.kwex_config_json)
+        except Exception as e:
+            logger.warning("Failed to load KWEX tuned knobs (%s). Using defaults.", e)
+    elif getattr(cfg, "kwex_config_json", ""):
+        logger.warning("KWEX config not found at %s; using defaults.", cfg.kwex_config_json)
 
     # 3b) Rules-first (keywords + smart rules)
     base_df = classify_batch(
@@ -350,6 +482,7 @@ def run(cfg: Settings):
 
 def main():
     cfg = Settings()
+    cfg = load_pipeline_snapshot(cfg)
     run(cfg)
 
 

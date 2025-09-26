@@ -1,0 +1,9 @@
+{
+  "fuse_alpha": 0.473512586257575,
+  "temp_emb": 0.7775767209313977,
+  "temp_lsa": 0.959037600591903,
+  "cat_assign_min_sim": 0.04375170196126762,
+  "cat_low_margin": 0.013827493488367263,
+  "rule_conf_thr": 0.7078916488131237,
+  "abstain_enable": false
+}

@@ -36,8 +36,8 @@ def load_taxonomy(version: str, lang: str):
     Attempts to import event_taxonomies.l1_<version>_<lang>.
     Falls back to English if that language module doesn't exist.
     """
-    mods_to_try = [f"event_taxonomies.l1_{version}_{lang}",
-                   f"event_taxonomies.l1_{version}_en"]
+    mods_to_try = [f"taxonomy.l1_{version}_{lang}",
+                   f"taxonomy.l1_{version}_en"]
     last_err = None
     for mod in mods_to_try:
         try:

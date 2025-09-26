@@ -17,7 +17,7 @@ except Exception:
     pass
 
 LABEL_COL_CANDIDATES = [
-    "true_cid", "label_cid", "cid", "category", "label", "true_label", "final_label", "gold_cid", "gold"
+    "true_cid"
 ]
 ID_COL_CANDIDATES = ["press_release_id", "id", "press_id"]
 
@@ -35,17 +35,35 @@ def pick_col(df: pd.DataFrame, candidates) -> str:
             return c
     raise KeyError(f"None of the expected columns are present. Looked for: {candidates}")
 
-def build_name2cid_from_assignments(assign_df: pd.DataFrame):
-    """Fallback: if taxonomy import failed, learn mapping from the assignments file."""
-    mapping = {}
-    if "category_name" in assign_df.columns and ("cid" in assign_df.columns or "final_cid" in assign_df.columns):
-        cid_col = "cid" if "cid" in assign_df.columns else "final_cid"
-        pairs = (assign_df[["category_name", cid_col]]
-                 .dropna()
-                 .astype(str)
-                 .drop_duplicates())
-        for _, row in pairs.iterrows():
-            mapping[row["category_name"].strip().lower()] = row[cid_col]
+def build_name2cid_from_assignments(assign_df: pd.DataFrame) -> dict[str, str]:
+    """
+    Fallback: learn name→CID mapping from the assignments file.
+    Prefers rules-first columns (final_*). Returns lowercase name -> CID.
+    """
+    mapping: dict[str, str] = {}
+
+    def add_pairs(name_col: str, cid_col: str):
+        if name_col in assign_df.columns and cid_col in assign_df.columns:
+            pairs = (
+                assign_df[[name_col, cid_col]]
+                .dropna()
+                .astype(str)
+                .drop_duplicates()
+            )
+            for _, row in pairs.iterrows():
+                mapping[row[name_col].strip().lower()] = row[cid_col].strip()
+
+    # Preferred (your current schema)
+    add_pairs("final_category_name", "final_cid")
+
+    # Fallbacks (older exports / other tools)
+    add_pairs("category_name", "final_cid")
+    add_pairs("category_name", "cid")
+
+    # Optional future fallbacks if you ever add these columns
+    add_pairs("ml_category_name", "ml_pred_cid")
+    add_pairs("rule_category_name", "rule_pred_cid")
+
     return mapping
 
 def normalize_label(x, allowed_cids: set, local_name2cid: dict):
@@ -79,10 +97,16 @@ def main(assignments_dir: str, labels_csv: str, out_prefix: str = None):
     id_pred_col = pick_col(df_pred, ID_COL_CANDIDATES)
     id_true_col = pick_col(df_true, ID_COL_CANDIDATES)
 
-    # Predicted CID column in assignments (your file has 'cid' == final_cid)
-    pred_cid_col = "cid" if "cid" in df_pred.columns else ("final_cid" if "final_cid" in df_pred.columns else None)
-    if pred_cid_col is None:
-        raise KeyError("Could not find predicted label column in assignments ('cid' or 'final_cid').")
+    # Predicted CID column (prefer rules-first / shipped label)
+    pred_cid_candidates = ["final_cid", "rule_pred_cid", "ml_pred_cid", "cid", "category"]
+    pred_cid_col = pick_col(df_pred, pred_cid_candidates)
+    print(f"[info] Using predicted column: {pred_cid_col}")
+
+    # Warn if ML differs from final (useful sanity check)
+    if "final_cid" in df_pred.columns and "ml_pred_cid" in df_pred.columns:
+        mismatch = (df_pred["final_cid"].astype(str) != df_pred["ml_pred_cid"].astype(str)).sum()
+        if mismatch:
+            print(f"[warn] {mismatch} rows where ML disagrees with final_cid (rules-first).")
 
     # Truth column in pool
     true_col = pick_col(df_true, LABEL_COL_CANDIDATES)

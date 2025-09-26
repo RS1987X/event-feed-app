@@ -1,0 +1,461 @@
+{
+   "name": "news_keywords_rules",
+  "schema_version": "1.0.0",
+  "lexicon_version": "1.4.0",
+  "taxonomy_version": "v4",
+  "model_targets": { "ml_version": ["e5+tfidf:v3"], "rule_engine": "keywords+exclusions" },
+  "updated_at": "2025-09-26T12:28:22Z",
+  "checksum_sha256": "<fill at build time>",
+  "changelog": [
+   "v1.4.0: added rnd_clinical category; adjusted product_launch_partnership excludes to avoid R&D/clinical announcements."
+     ],
+  "categories": {
+
+    "earnings_report": {
+        "must_any": [
+            "interim report", "quarterly report", "quarterly results",
+            "half-year", "half-year report", "year-end", "annual report", "full-year report",
+            "delårsrapport", "halvårsrapport", "kvartalsrapport", "bokslutskommuniké",
+            "tilinpäätös", "puolivuosikatsaus", "osavuosikatsaus", "årsrapport", "substansvärde"
+        ],
+        "any": ["q1", "q2", "q3", "q4", "first quarter", "second quarter", "third quarter", "fourth quarter"],
+        "context": ["guidance", "outlook", "net sales", "ebit", "ebitda", "profit", "loss", "omxsgi"],
+        "exclude": []
+    },
+
+    "share_buyback": {
+        "must_any": [
+            "share repurchase", "buy-back", "buyback", "buy-back programme",
+            "repurchase of own shares", "acquisition of own shares",
+            "återköp", "aktieåterköp",
+            "tilbagekøb",
+            "omien osakkeiden osto", "osto omia osakkeita"
+        ],
+        "any": [
+            "launches buyback", "buyback program", "repurchase program",
+            "authorization to repurchase", "authorised to repurchase", "authorizes repurchase"
+        ],
+        "context": ["maximum amount", "up to", "no more than", "daily purchases", "daily repurchases"],
+        "exclude": ["rights issue", "directed issue", "private placement", "dividend"]
+    },
+
+    "dividend": {
+        "must_any": ["dividend", "utdelning", "osinko", "udbytte", "dividend proposal", "dividend policy"],
+        "any": ["record date", "ex-dividend", "payment date", "pay-out", "pay out"],
+        "context": ["per share", "per aktie", "ordinary dividend", "special dividend", "interim dividend", "final dividend"],
+        "exclude": ["buyback", "share repurchase"]
+    },
+
+    "capital_raise_rights_issue": {
+        "must_any": [
+            "rights issue", "directed issue", "private placement",
+            "equity issue", "share issue", "emission", "nyemission", "företrädesemission",
+            "kapitalforhøjelse", "emisjon", "osakeanti"
+        ],
+        "any": ["subscription price", "issue price", "units", "warrants", "prospectus", "gross proceeds", "net proceeds"],
+        "context": ["offer period", "subscription period", "bookbuilding", "book-building", "allocation", "settlement"],
+        "exclude": ["share repurchase", "buyback", "dividend"]
+    },
+
+    "equity_actions_non_buyback": {
+        "must_any": [
+            "share split", "reverse split", "consolidation of shares", "conversion of shares",
+            "change of isin", "name change", "aktiesplit", "sammanläggning",
+            "omdöpning", "konvertering", "total number of shares and votes"
+        ],
+        "any": ["change of name", "new name", "ticker change", "isin change"],
+        "context": [],
+        "exclude": ["rights issue", "buyback", "dividend"]
+    },
+
+   
+    "agm_egm_governance": {
+        "must_any": [
+            "annual general meeting", "extraordinary general meeting",
+            "agm", "egm", "yhtiökokous", "generalforsamling", "bolagsstämma", "årsstämma"
+        ],
+        "any": ["resolutions at the annual", "proceedings of annual", "notice of annual general meeting"],
+        "context": ["board election", "auditor", "nomination committee", "valberedning", "revisor"],
+        "exclude": []
+    },
+
+    "pdmr_managers_transactions": {
+        "must_any": [
+        "managers' transaction", "managers’ transaction",
+        "pdmr", "person discharging managerial responsibilities",
+        "insynshandel", "ledningens transaktioner"
+    ],
+    "any": [
+        "article 19 mar", "mar article 19", "article 19 of mar"
+    ],
+    "context": [
+        "isin", "shares", "aktier", "transaction date", "price", "volume"
+    ],
+    "exclude": [
+        
+         
+    ]
+    },
+
+  
+    "admission_listing": {
+    "must_any": [
+        
+        "admission to trading", "admitted to trading",
+        "first day of trading", "listing on", "listing of", "ipo"
+    ],
+    "any": [
+        
+        "up-listing", "uplist", "introduktion", "notering",
+        "opnotering", "børsnotering", "listautuminen",
+        "euronext", "nasdaq", "first north", "otc", "spotlight"
+    ],
+    "context": ["ticker", "isin", "market place", "exchange"],
+    "exclude": [
+        
+        "is listed on", "are listed on", "shares are listed", "listed on",
+        "has been listed", "remains listed", "since 20", "since 19"
+    ]
+    },
+
+    "admission_delisting": {
+        "must_any": [
+            "delisting", "removed from trading", "last day of trading",
+            "trading halt", "suspension", "trading suspended",
+            "avnotering", "handelsstopp", "handelssuspendering", "handel ophørt"
+        ],
+        "any": ["terminated from trading", "to be delisted", "removal from trading"],
+        "context": ["exchange", "market place", "ticker", "isin"],
+        "exclude": [
+            
+            "admission to trading", "admitted to trading", "first day of trading", "listing on", "listing of", "ipo"
+        ]
+    },
+
+    "debt_bond_issue": {
+        "must_any": ["bond issue", "note issue", "notes", "loan agreement", "convertible", "prospectus"],
+        "any": ["senior unsecured", "tap issue", "maturity", "coupon", "convertible notes", "green bond"],
+        "context": ["eurobond", "minibond", "sustainability-linked", "debenture", "framework"],
+        "exclude": []
+    },
+
+    
+    "orders_contracts": {
+        "must_any": [
+            "order", "contract awarded", "framework agreement", "tender",
+            "purchase order", "call-off order"
+        ],
+        "any": [
+            "wins order", "wins contract", "secures order", "received an order",
+            "contract awarded", "signs contract", "enter into agreement", "call-off from framework"
+        ],
+        "context": [
+            "order value", "ordervärde", "kontraktsvärde",
+            "delivery", "deliveries", "supply", "customer", "factory", "plant", "site",
+            "units", "buses", "trucks", "locomotives", "turbines", "mw", "kv", "per share" 
+        ],
+        "exclude": ["tender offer", "public tender offer", "takeover bid", "recommended cash offer"]
+    },
+
+    "product_launch_partnership": {
+        "must_any": [
+            "launch",
+            "product launch",
+            "product release",
+            "commercial launch",
+            "market launch",
+            "general availability",
+            "go-live",
+            "partnership",
+            "collaboration",
+            "alliance",
+            "cooperation agreement",
+            "co-development agreement",
+            "distribution agreement",
+            "reseller agreement",
+            "licensing agreement",
+            "oem agreement",
+            "white-label agreement",
+            "supply and commercialization agreement"
+        ],
+        "any": [
+            "pilot",
+            "pilot project",
+            "trial",
+            "beta",
+            "proof of concept",
+            "poc",
+            "early access",
+            "soft launch",
+            "limited launch",
+            "memorandum of understanding",
+            "mou",
+            "strategic partnership",
+            "integration partner",
+            "technology partner",
+            "channel partner",
+            "go-to-market",
+            "gtm",
+            "co-marketing",
+            "co-sell",
+            "co-selling",
+            "launch partner",
+            "design partner",
+            "rollout",
+            "roll-out"
+        ],
+        "context": [
+            "customer",
+            "deployment",
+            "rollout",
+            "roll-out",
+            "commercialization",
+            "commercialisation",
+            "integration",
+            "embedded",
+            "available now",
+            "availability",
+            "shipping",
+            "order now",
+            "pricing",
+            "bundle",
+            "sku",
+            "regions",
+            "market",
+            "reseller",
+            "distributor"
+        ],
+        "exclude": [
+            "fda approval",
+            "ema approval",
+            "chmp opinion",
+            "patent granted",
+            "patent approval",
+            "marketing authorization",
+            "marketing authorisation",
+            "ce mark",
+            "clearance",
+            "phase i",
+            "phase ii",
+            "phase iii",
+            "joint venture",
+            "merger",
+            "acquisition",
+            "takeover",
+             "clinical trial", "clinical study", "phase i", "phase 1", "phase ii", "phase 2", "phase iii", "phase 3",
+            "top-line", "topline", "readout", "data readout",
+            "poster", "abstract", "oral presentation", "late-breaking",
+            "conference", "congress", "scientific meeting"
+        ]
+    },
+
+   
+    "personnel_management_change": {
+        "must_any": [
+        
+            "ceo", "chief executive officer", "group ceo",
+            "cfo", "chief financial officer",
+            "coo", "chief operating officer",
+            "cto", "chief technology officer",
+            "cio", "chief information officer", 
+            "chairperson", "chairman", "chair of the board",
+            "board member", "board director", "non-executive director", "managing director",
+            "vd", "verkställande direktör", "finanschef", "ekonomichef", "finansdirektör",
+            "styrelseledamot", "styrelseordförande", "ordförande"
+        ],
+        "any": [
+            
+            "appointed", "has been appointed", "appointed as", "named", "to serve as", "will serve as",
+            "promoted to", "promotion to",
+            "resigns", "resignation", "steps down", "stepping down", "to step down",
+            "retires", "retirement", "retiring",
+            "dismissed", "terminated", "fired",
+            "elected as", "re-elected", "reelected",
+            "joins as", "joins the company as",
+            "assumes the role of", "assumes the position of",
+            "succeeds", "to succeed", "replaces", "to replace",
+            "leaves the board", "leaves board", "leaves as",
+            "new ceo", "interim ceo", "acting ceo", "interim cfo", "acting cfo",
+
+            
+            "utser", "utnämner", "tillsätter", "avgår", "lämnar styrelsen", "frånträder", "tillträder",
+            "rekryteras", "anställs", "befordras", "väljs", "omväljs",
+            "udnævnes", "fratræder", "træder tilbage", "tiltræder", "ansættes", "afgår",
+            "utnevnes", "fratrer", "tiltrer", "ansettes", "erstatter", "etterfølger",
+            "nimitetään", "eroaa", "siirtyy"
+        ],
+        "context": [
+            "effective from", "effective on", "effective date", "effective immediately",
+            "starts on", "with effect from", "with immediate effect",
+            "board of directors"
+        ],
+        
+        "exclude": [
+      
+        "invitation to the presentation of the interim report",
+        "invitation to the presentation of the quarterly report",
+        "invites investors, analysts and the press to a presentation",
+        "invites investors and analysts to a presentation",
+        "presentation of the interim report",
+        "presentation of the quarterly report",
+        "presentation of q1", "presentation of q2", "presentation of q3", "presentation of q4",
+        "to follow the webcast", "via webcast", "webcast", "audiocast",
+        "conference call", "teleconference", "dial-in details", "register via this link",
+        "earnings call", "analyst call",
+
+      
+        "inbjudan till presentation av delårsrapporten",
+        "bjuder in till presentation av delårsrapporten",
+        "bjuder in till webbpresentation",
+        "presentation av delårsrapporten",
+        "presentation av kvartalsrapporten",
+        "presentation av q1", "presentation av q2", "presentation av q3", "presentation av q4",
+        "presenterar resultatet",
+        "webbpresentation", "webbsändning", "telekonferens",
+
+        "invitation to the presentation", "inbjudan till presentation", "bjuder in till presentation"
+    ]
+    },
+
+
+    "mna": {
+        "must_any": [
+            "acquisition", "merger", "business combination", "combination",
+            "offer", "tender offer", "takeover bid", "public offer", "cash offer", "exchange offer",
+            "divestment", "disposal", "sale", "spin-off", "demerger", "split-off", "carve-out",
+            "förvärv", "uppköp", "offentligt uppköpserbjudande", "kontantbud", "budpliktsbud",
+            "försäljning", "avyttring", "fusion", "samgående", "sammanslagning"
+        ],
+        "any": [
+            "to acquire", "to acquire all shares", "to acquire the remaining shares",
+            "merger agreement", "business combination agreement", "share purchase agreement",
+            "asset purchase agreement", "sale and purchase agreement", "scheme of arrangement",
+            "bid", "offer price", "public tender offer"
+        ],
+        "context": [
+            "offer price", "equity value", "enterprise value", "valuation", "implies a premium",
+            "acceptance period", "acceptance level", "unconditional", "settlement",
+            "completion", "closing", "conditions to completion", "regulatory approvals",
+            "per share", "per aktie"
+        ],
+        "exclude": ["purchase order", "call-off order"]
+    },
+
+
+    "legal_regulatory_compliance": {
+        "must_any": [
+           
+            "marketing authorization", "marketing authorisation",          
+            "european commission approval", "ec approval",             
+            "has granted marketing authorization", "has granted marketing authorisation", 
+            "patent granted", "patent approval", "uspto", "epo", "ce mark",
+            "fda approval", "ema approval", "chmp opinion", "medicare reimbursement",
+            "market authorisation", "market authorization",
+            
+            "major shareholder", "shareholding notification", "notification of major holdings",
+            "flaggningsanmälan", "notification under chapter 9", "securities market act",
+            "värdepappersmarknadslagen", "section 30", "chapter 9", "voting rights", "threshold", "tr-1"
+        ],
+        "any": ["approval", "authorisation", "authorization", "granted", "patent number"],
+        "context": [],
+        "exclude": []
+    },
+
+    "credit_ratings": {
+        "must_any": [
+            "moody’s", "moody's", "moody's ratings",
+            "fitch", "fitch ratings",
+            "s&p", "standard & poor’s", "standard & poor's", "s&p global ratings"
+        ],
+        "any": [
+            "credit rating", "issuer rating", "bond rating", "instrument rating",
+            "rating action", "rating outlook", "watch placement",
+            "affirmed", "downgrade", "upgrade", "outlook revised", "outlook stable",
+            "placed on watch", "creditwatch"
+        ],
+        "context": ["stable outlook", "negative outlook", "positive outlook"],
+        "exclude": ["outlook for"]
+    },
+
+    "labor_workforce": {
+        "must_any": [
+            "layoff", "redundancies", "restructure workforce", "plant closure", "furlough",
+            "varsla", "varsel", "uppsägning", "permittering", "personalneddragning",
+            "strike", "lockout", "strejk"
+        ],
+        "any": ["headcount reduction", "positions", "fte", "job cuts"],
+        "context": ["factory", "plant", "site", "closure", "close down"],
+        "exclude": []
+    },
+
+    "incidents_controversies": {
+        "must_any": [
+            "accident", "fire", "explosion", "breach", "cyber attack",
+            "data leak", "data breach", "sanctions", "recall",
+            "olycka", "brand", "intrång", "skandal",
+            "ulykke", "databrud", "hackerangreb", "angrep"
+        ],
+        "any": ["investigation", "probe", "incident", "security incident", "ransomware"],
+        "context": ["customer data", "production halted", "facilities damaged"],
+        "exclude": []
+    },
+
+    "rd_clinical_update": {
+        "must_any": [
+            "clinical trial",
+            "clinical study",
+            "phase i", "phase 1",
+            "phase ii", "phase 2",
+            "phase iii", "phase 3",
+            "top-line results", "topline results", "top-line data", "topline data",
+            "readout", "data readout",
+            "primary endpoint", "co-primary endpoint",
+            "statistically significant", "met its endpoint", "met the primary endpoint",
+            "first patient dosed", "fpi", "last patient in", "lpi",
+            "enrollment completed", "recruitment completed"
+        ],
+        "any": [
+            "poster", "oral presentation", "late-breaking",
+            "abstract", "accepted abstract",
+            "presented at", "to present at", "will present at",
+            "conference", "congress", "symposium", "scientific meeting",
+            "ascribe id", "nct", "protocol", "dose-escalation", "dose expansion",
+            "randomized", "double-blind", "placebo-controlled",
+            "safety profile", "efficacy", "biomarker", "pharmacokinetics", "pk", "pd","to present new data", "presents new data", "new data to be presented",
+            "interim data", "new results", "efficacy data", "safety data",
+            "proof of concept", "poc",
+            "manuscript", "journal", "published",
+            "dose escalation", "dose expansion",
+            "biomarker", "non-inferiority", "superiority",
+            "trial", "study", "cohort", "arm"
+        ],
+        "context": [
+            "enrollment", "recruitment", "cohort", "arm",
+            "investigator-initiated", "ind", "cta", "irb", "ethics committee",
+            "regulatory submission", "study sites", "study centers",
+            "esmo", "asco", "aacr", "ash", "esc", "eras", "easl", "aans", "ddw"
+        ],
+        "exclude": [
+            "marketing authorization", "marketing authorisation",
+            "fda approval", "ema approval", "chmp opinion", "ce mark", "clearance",
+            "launch", "commercial launch", "market launch",
+            "partnership", "collaboration", "distribution agreement",
+            "merger", "acquisition", "takeover", "joint venture"
+        ]
+        },
+
+
+    "other_corporate_update": {
+        "must_any": [
+            "certified adviser", "liquidity provider", "capital markets day",
+            "new office opening", "corporate housekeeping"
+        ],
+        "any": ["end of day stock quote", "weekly summary alert", "reminder", "save the date"],
+        "context": [],
+        "exclude": []
+    }
+}
+
+
+
+  }
