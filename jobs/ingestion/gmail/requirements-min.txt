@@ -1,0 +1,12 @@
+beautifulsoup4
+polars
+pyarrow
+
+google-api-python-client
+google-auth
+google-auth-oauthlib
+
+google-cloud-secret-manager
+google-cloud-firestore
+google-cloud-storage
+python-dateutil>=2.8.2
