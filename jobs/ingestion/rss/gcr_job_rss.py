@@ -38,9 +38,15 @@ from google.cloud import storage, firestore
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-# ── Hardcoded feed & source ─────────────────────────────────────────────────────
-FEED_URL = "https://www.globenewswire.com/RssFeed/country/United%20States/feedTitle/GlobeNewswire%20-%20News%20from%20United%20States"
-SOURCE   = "globenewswire"  # used in GCS paths
+# top of file
+from dateutil import parser as dtparser
+from dateutil.tz import gettz
+
+
+
+# ── Hardcoded feed & source (make env-overridable) ───────────
+FEED_URL = os.environ.get("FEED_URL", "https://www.globenewswire.com/RssFeed/country/United%20States/feedTitle/GlobeNewswire%20-%20News%20from%20United%20States")
+SOURCE   = os.environ.get("SOURCE", "globenewswire")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 PROJECT_ID     = os.environ.get("PROJECT_ID", "")
@@ -81,6 +87,128 @@ def _gz_bytes(data: bytes) -> bytes:
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+
+def _parse_dt_utc(s: Optional[str]) -> Optional[str]:
+    if not s: return None
+    try:
+        # map newsroom shorthands (ET, CT, etc.)
+        tzinfos = {
+            "ET": gettz("America/New_York"),
+            "CT": gettz("America/Chicago"),
+            "MT": gettz("America/Denver"),
+            "PT": gettz("America/Los_Angeles"),
+        }
+        dt = dtparser.parse(s, tzinfos=tzinfos, fuzzy=True)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z")
+    except Exception:
+        return None
+    
+def parse_page_meta(html: str) -> Dict[str, Optional[str]]:
+    """Returns {'company_name', 'release_ts_utc', 'release_time_text'} if found."""
+    soup = BeautifulSoup(html, "html.parser")
+    out = {"company_name": None, "release_ts_utc": None, "release_time_text": None}
+
+    # 1) JSON-LD (datePublished + publisher/sourceOrganization/author)
+    for s in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(s.string or "")
+            nodes = data if isinstance(data, list) else [data]
+            for n in nodes:
+                if not isinstance(n, dict):
+                    continue
+                dp = n.get("datePublished") or n.get("dateCreated")
+                if dp and not out["release_ts_utc"]:
+                    out["release_time_text"] = dp
+                    out["release_ts_utc"] = _parse_dt_utc(dp)
+                for k in ("sourceOrganization", "publisher", "author"):
+                    v = n.get(k)
+                    if isinstance(v, dict) and v.get("name") and not out["company_name"]:
+                        out["company_name"] = v["name"].strip()
+        except Exception:
+            pass
+
+    # 2) Common meta tags
+    for sel in [
+        'meta[property="article:published_time"]',
+        'meta[itemprop="datePublished"]',
+        'meta[name="parsely-pub-date"]',
+        'meta[name="pubdate"]',
+        'meta[name="date"]',
+    ]:
+        el = soup.select_one(sel)
+        if el and el.get("content") and not out["release_ts_utc"]:
+            out["release_time_text"] = el["content"]
+            out["release_ts_utc"] = _parse_dt_utc(el["content"])
+
+    # 3) <time datetime="..."> (often present on GNW)
+    if not out["release_ts_utc"]:
+        t = soup.select_one('time[datetime]')
+        if t and t.get("datetime"):
+            out["release_time_text"] = t["datetime"]
+            out["release_ts_utc"] = _parse_dt_utc(t["datetime"])
+
+    # 4) GNW-style dateline: "September 29, 2025 08:00 ET | Source: <Company>"
+    if not out["release_ts_utc"] or not out["company_name"]:
+        # Grab a small header/intro slice to avoid false positives
+        candidates = []
+        for sel in [
+            ".gnw-article",
+            ".gnw-press-release",
+            ".article-header",
+            ".article-info",
+            "header",
+            "main",
+        ]:
+            el = soup.select_one(sel)
+            if el:
+                candidates.append(el.get_text(" ", strip=True))
+        if not candidates:
+            # Fallback: small slice of full text
+            candidates.append(soup.get_text(" ", strip=True))
+
+        head = " ".join(candidates)[:1500]
+
+        # 4a) Try to parse "Month DD, YYYY HH:MM (AM/PM)? TZ"
+        m = re.search(
+            r'([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})\s+(\d{1,2}:\d{2})\s*(AM|PM)?\s*(ET|CEST|CET|UTC|GMT|BST)?',
+            head
+        )
+        if m and not out["release_ts_utc"]:
+            human = " ".join(x for x in m.groups() if x)
+            z = _parse_dt_utc(human)
+            if z:
+                out["release_time_text"] = human
+                out["release_ts_utc"] = z
+
+        # 4b) Issuing company after "Source:"
+        if not out["company_name"]:
+            m2 = re.search(r'\bSource:\s*([^|]+)', head, flags=re.IGNORECASE)
+            if m2:
+                out["company_name"] = m2.group(1).strip().rstrip("·|")
+
+    # 5) PRN block: “NEWS PROVIDED BY …”
+    label = soup.find(string=lambda t: isinstance(t, str) and "NEWS PROVIDED BY" in t.upper())
+    if label:
+        parent = getattr(label, "parent", None)
+        if parent and not out["company_name"]:
+            a = parent.find_next("a")
+            if a and a.get_text(strip=True):
+                out["company_name"] = a.get_text(strip=True)
+        if parent and not out["release_ts_utc"]:
+            for i, txt in enumerate(parent.stripped_strings):
+                if i > 6:
+                    break
+                z = _parse_dt_utc(txt)
+                if z:
+                    out["release_time_text"] = txt
+                    out["release_ts_utc"] = z
+                    break
+
+    return out
+
+
 # ── Firestore state (per-feed) + cooldown ──────────────────────────────────────
 def _feed_state_doc():
     # Key the doc off FEED_URL so it’s stable
@@ -90,7 +218,6 @@ def _feed_state_doc():
 def load_feed_state() -> Dict:
     doc = _feed_state_doc().get()
     return doc.to_dict() if doc.exists else {}
-
 def save_feed_state(*, last_modified: Optional[str] = None, etag: Optional[str] = None):
     patch = {}
     if last_modified is not None: patch["last_modified"] = last_modified
@@ -98,8 +225,12 @@ def save_feed_state(*, last_modified: Optional[str] = None, etag: Optional[str] 
     if patch:
         _feed_state_doc().set(patch, merge=True)
 
+def _cooldown_doc():
+    key = _short_hash(FEED_URL, n=16)  # per-feed key
+    return _fs.collection("ingest_state").document(f"rss_cooldown_{key}")
+
 def load_cooldown_utc() -> Optional[datetime]:
-    doc = _fs.collection("ingest_state").document("rss").get()
+    doc = _cooldown_doc().get()
     if not doc.exists: return None
     s = (doc.to_dict() or {}).get("cooldown_until_utc")
     try:
@@ -108,12 +239,13 @@ def load_cooldown_utc() -> Optional[datetime]:
         return None
 
 def save_cooldown_utc(until_dt_utc: datetime) -> None:
-    _fs.collection("ingest_state").document("rss").set(
-        {"cooldown_until_utc": until_dt_utc.astimezone(timezone.utc).isoformat()}, merge=True
+    _cooldown_doc().set(
+        {"cooldown_until_utc": until_dt_utc.astimezone(timezone.utc).isoformat()},
+        merge=True
     )
 
 def clear_cooldown_utc():
-    _fs.collection("ingest_state").document("rss").set({"cooldown_until_utc": None}, merge=True)
+    _cooldown_doc().set({"cooldown_until_utc": None}, merge=True)
 
 def save_cooldown_max(until_dt_utc: datetime):
     target = (until_dt_utc + timedelta(seconds=COOLDOWN_PAD_SECS)).astimezone(timezone.utc)
@@ -163,7 +295,7 @@ def extract_text(html: str, base_url: str) -> str:
         ".article-body,.articleBody,#article-body,#articleBody",
         ".press-release,.pressrelease,.pr-body,#release-body",
         ".entry-content,.content__body,.story-body,.post-content",
-        ".gnw-article,.gnw-press-release",
+        ".gnw-article,.gnw-press-release",".release-body,.release-content,.news-release",
     ]
     for sel in selectors:
         el = soup.select_one(sel)
@@ -209,18 +341,19 @@ def write_bronze(*, msg_id: str, day_iso: str, html: str, entry_json: Dict, page
 
 def write_silver_parquet(row: Dict):
     schema = pa.schema([
-        ("press_release_id", pa.string()),
-        ("company_name",     pa.string()),
-        ("category",         pa.string()),
-        ("release_date",     pa.string()),
-        ("ingested_at",      pa.string()),
-        ("title",            pa.string()),
-        ("full_text",        pa.string()),
-        ("source",           pa.string()),
-        ("source_url",       pa.string()),
-        ("parser_version",   pa.int32()),
-        ("schema_version",   pa.int32()),
-    ])
+    ("press_release_id", pa.string()),
+    ("company_name",     pa.string()),
+    ("category",         pa.string()),
+    ("release_date",     pa.string()),
+    ("release_ts_utc",   pa.string()),   # ← NEW: ISO-8601 UTC
+    ("ingested_at",      pa.string()),
+    ("title",            pa.string()),
+    ("full_text",        pa.string()),
+    ("source",           pa.string()),
+    ("source_url",       pa.string()),
+    ("parser_version",   pa.int32()),
+    ("schema_version",   pa.int32()),
+])
     data = {name: [row.get(name)] for name in schema.names}
     table = pa.Table.from_pydict(data, schema=schema)
 
@@ -301,9 +434,10 @@ def process_once() -> int:
         msg_id = _msg_id_for_entry(e)
         link   = e.get("link","")
         title  = e.get("title","")
-        day    = _pub_date_iso(e)
+        #day    = _pub_date_iso(e)
 
-        if bronze_exists(msg_id, day):
+        day_rss = _pub_date_iso(e)
+        if bronze_exists(msg_id, day_rss):
             continue
 
         try:
@@ -316,12 +450,28 @@ def process_once() -> int:
             continue
 
         html = page.text
+        meta = parse_page_meta(html)  
+        day_final = (
+            datetime.fromisoformat(meta["release_ts_utc"].replace("Z","+00:00")).date().isoformat()
+            if meta.get("release_ts_utc") else day_rss
+        )
+        # pick partition date: prefer page timestamp if present, else RSS date
+        # NEW: if final day differs, ensure we haven’t already written under that partition
+        if day_final != day_rss and bronze_exists(msg_id, day_final):
+            logging.info("[skip] already exists under final partition %s", day_final)
+            continue
+
+        day = day_final
+        
         text = extract_text(html, page.url)
         if not text or len(text) < 200:
             logging.warning("[extract] short text msgId=%s url=%s", msg_id, page.url)
 
         entry_json = {
             "msgId": msg_id,
+            "page_company": meta.get("company_name"),
+            "page_release_time_utc": meta.get("release_ts_utc"),
+            "page_release_time_text": meta.get("release_time_text"),
             "title": title,
             "link": link,
             "published": e.get("published"),
@@ -337,16 +487,17 @@ def process_once() -> int:
 
         row = {
             "press_release_id": msg_id,
-            "company_name": "",
+            "company_name": meta.get("company_name") or "",
             "category": "unknown",
             "release_date": day,
+            "release_ts_utc": meta.get("release_ts_utc"),   # ← precise time
             "ingested_at": _now_utc_iso(),
             "title": title,
             "full_text": text,
             "source": SOURCE,
             "source_url": page.url,
             "parser_version": PARSER_VER,
-            "schema_version": SCHEMA_VER,
+            "schema_version": SCHEMA_VER,  # optionally bump to 2
         }
         write_silver_parquet(row)
 

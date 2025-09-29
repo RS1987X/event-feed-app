@@ -5,3 +5,4 @@ feedparser>=6.0.11
 beautifulsoup4>=4.12.3
 pyarrow>=17.0.0
 trafilatura>=1.12.1   # optional but recommended; remove if you don’t want it
+python-dateutil>=2.8.2
