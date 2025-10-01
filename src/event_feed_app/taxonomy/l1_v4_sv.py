@@ -4,7 +4,7 @@ VERSION = "3.0.0"
 
 L1_CATEGORIES: List[Tuple[str, str, str]] = [
     ("earnings_report", "Delårsrapport / Årsredovisning",
-     "Periodiska finansiella resultat: delårsrapporter, kvartalsrapporter, halvårsrapporter, bokslut; kan inkludera nyckeltal, framtidskommentarer och lagstadgade redovisningar."),
+     "Periodiska finansiella resultat: delårsrapporter, kvartalsrapporter, halvårsrapporter, bokslut; kan inkludera nyckeltal, framtidskommentarer, och lagstadgade redovisningar."),
     ("share_buyback", "Aktieåterköp",
      "Bolagets återköp av egna aktier: lansering av program, förlängningar, uppdateringar, avslut."),
     ("dividend", "Utdelning",

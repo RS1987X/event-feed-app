@@ -1,0 +1,4 @@
+gcs:
+  events_silver: "gs://event-feed-app-data/silver/events.parquet"
+  guidance_versions: "gs://event-feed-app-data/silver/guidance_versions.parquet"
+  guidance_current:  "gs://event-feed-app-data/gold/guidance_current.parquet"

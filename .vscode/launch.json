@@ -10,6 +10,28 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
-        }
+        },
+        {
+            "name": "Guidance job (module)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "event_feed_app.events.guidance_change.guidance_change",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src",
+                "GCS_SILVER_ROOT": "event-feed-app-data/silver_normalized/table=press_releases",
+                "KWEX_TUNED_JSON": "${workspaceFolder}/src/event_feed_app/configs/kwex/kwex_tuned.json",
+            },
+            "args": [
+                "--config-dir", "src/event_feed_app/configs",
+                "--input-kind", "gcs-parquet",
+                "--lookback-hours", "120",
+                "--debug-csv", ".cache/guidance_events.csv",
+                "--audit-csv", ".cache/guidance_events_audit.csv"
+                
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+            }
     ]
 }
