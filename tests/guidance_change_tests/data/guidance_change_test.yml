@@ -1,0 +1,118 @@
+# tests/data/guidance_change_test.yml
+events:
+  - key: guidance_change
+    label: Guidance change for company or competitor
+
+    thresholds:
+      withdraw_or_suspend: always
+      initiate_new_period: always
+      delta_pct_level_min: 5
+      delta_pp_growth_min: 3
+      delta_pp_margin_min: 1.5
+      label_delta_pct_level_min: 2
+      label_delta_pp_growth_min: 1.0
+      label_delta_pp_margin_min: 0.3
+      approx_band_pp_margin: 0.5
+      approx_band_pp_growth: 1.0
+
+      proximity:
+        mode: "token"
+        fwd_cue_metric_chars: 120
+        fwd_cue_metric_tokens: 10
+        allow_cross_sentence: false
+        look_left_sentences: 0
+        look_right_sentences: 0
+
+      unchanged_markers_en: ["unchang", "in line", "no change", "as previously", "as prior"]
+      unchanged_markers_sv: ["oföränd", "i linje med", "som tidigare"]
+
+    patterns:
+      triggers:
+        en_any:
+          - '\bprofit\s+(warning|alert)s?\b'
+          - '\b(?:write[ -]?down|write[ -]?off|impairment(?:\s+charge)?s?)\b'
+        sv_any:
+          - '\bomvänd\s+vinstvarning\b|\bvinstvarning\b'
+          - '\b(nedskrivning(ar)?|nedskrivnings(post|kostnad)(er)?|engångsnedskrivning(ar)?|nedskrivningsbehov)\b'
+
+      fwd_cue:
+        terms:
+          en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect"]
+          sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
+
+      proximity_triggers:
+        - name: en_guidance_change
+          type: guidance_change
+          lang: en
+          verbs: [raise, raises, raised, raising, lower, lowers, lowered, lowering, revise, revises, revised, revising, update, updates, updated, updating, withdraw, withdraws, withdrew, withdrawn, suspend, suspends, suspended, suspending, narrow, narrows, narrowed, narrowing, widen, widens, widened, widening]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance","guidance range"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: en_guidance_unchanged_verbal
+          type: guidance_unchanged
+          lang: en
+          verbs: [reaffirm, reaffirms, reaffirmed, reaffirming, maintain, maintains, maintained, maintaining, keep, keeps, kept, keeping, leave, leaves, left, leaving]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: en_guidance_unchanged_token
+          type: guidance_unchanged
+          lang: en
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          unchanged_tokens: "@unchanged_markers_en"
+          window_tokens: 6
+          same_sentence: true
+
+        - name: en_guidance_initiate
+          type: guidance_initiate
+          lang: en
+          verbs: [initiate, initiates, initiated, initiating, provide, provides, provided, providing, issue, issues, issued, issuing, set, sets, setting, introduce, introduces, introduced, introducing, publish, publishes, published, publishing, present, presents, presented, presenting]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 10
+          same_sentence: true
+          require_period_token: true
+
+      metric_numeric_triggers:
+        - name: en_guidance_numeric
+          type: guidance_stated
+          lang: en
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 8
+          same_sentence: true
+          require_number: true
+
+      dir_up:
+        any:
+          - '\b(improv\w+|increase\w*|expand\w*|grow\w*|strengthen\w*|better)\b'
+      dir_dn:
+        any:
+          - '\b(declin\w+|decreas\w+|contract\w*|pressure|pressures|headwind\w*|worse)\b'
+
+      invite:
+        any:
+          - '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder)\b'
+
+      disclaimer_block:
+        any:
+          - '(forward[-\s]looking\s+statements|safe\s+harbor|cautionary\s+statement)'
+
+      disclaimer_inline:
+        any:
+          - '(statements?\s+that\s+are\s+not\s+historical|subject\s+to\s+risks\s+and\s+uncertainties)'
+
+      suppressors:
+        analyst:
+          any: ['\bconsensus\b|\bBloomberg\b|\bFactSet\b|\bRefinitiv(e)?\b']
+        macro:
+          any: ['\b(industry|sector|marknaden|industrin)\b']
+        ma:
+          any: ['\b(acquisition|purchase price|enterprise value|offer|bid|förvärv|bud)\b']
+        debt:
+          any: ['\b(coupon|bond|loan|interest|facility|revolver|ränta|lån)\b']
+
+    terms:
+      margin_allowed_prefixes: [operating, "op.", EBIT, EBITDA, EBITA, rörelse, ebit, ebitda, ebita]
+      dir_up_terms: [improve, improving, increase, increasing, expand, grow, strengthen, better, förbättra, förbättras, öka, ökande, stärka, bättre]
+      dir_dn_terms: [decline, declining, decrease, decreasing, contract, pressure, headwinds, worse, försämra, försämras, minska, minskande, press, motvind, sämre]

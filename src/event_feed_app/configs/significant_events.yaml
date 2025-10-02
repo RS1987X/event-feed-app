@@ -11,54 +11,170 @@ events:
     thresholds:
       withdraw_or_suspend: always
       initiate_new_period: always
-      delta_pct_level_min: 5        # revenue/EBIT/EBITDA in currency
-      delta_pp_growth_min: 3        # growth % move in pp
-      delta_pp_margin_min: 1.5      # margin % move in pp
+      delta_pct_level_min: 5
+      delta_pp_growth_min: 3
+      delta_pp_margin_min: 1.5
       label_delta_pct_level_min: 2
       label_delta_pp_growth_min: 1.0
       label_delta_pp_margin_min: 0.3
       approx_band_pp_margin: 0.5
       approx_band_pp_growth: 1.0
+
+      # === Proximity engine tuning ===
       proximity:
-        mode: "token"               # "char" | "token" | "both" | "either"
-        fwd_cue_metric_chars: 120   # kept for back-compat / either/both mode
-        fwd_cue_metric_tokens: 25   # token window for cue↔metric proximity
+        mode: "token"
+        fwd_cue_metric_chars: 120
+        fwd_cue_metric_tokens: 10
         allow_cross_sentence: false
         look_left_sentences: 0
         look_right_sentences: 0
 
+      # was: negations_en / negations_sv
+      unchanged_markers_en: ["unchang", "in line", "no change", "as previously", "as prior"]
+      unchanged_markers_sv: ["oföränd", "i linje med", "som tidigare"]
+
     patterns:
       triggers:
+        # Keep only high-precision, canonical phrase regexes here.
         en_any:
-          # Strong verbs near guidance/outlook/forecast
-          - '\b(raise|raises|raised|raising|lower|lowers|lowered|lowering|revise|revises|revised|revising|update|updates|updated|updating|withdraw|withdraws|withdrew|withdrawn|suspend|suspends|suspended|suspending|reaffirm|reaffirms|reaffirmed|reaffirming|narrow|narrows|narrowed|narrowing|tighten|tightens|tightened|tightening|widen|widens|widened|widening)\b.{0,40}\b(guidance|outlook|forecast)s?\b'
-          - '\b(guidance|outlook|forecast)s?\b.{0,40}\b(raise|raises|raised|raising|lower|lowers|lowered|lowering|revise|revises|revised|revising|update|updates|updated|updating|withdraw|withdraws|withdrew|withdrawn|suspend|suspends|suspended|suspending|reaffirm|reaffirms|reaffirmed|reaffirming|narrow|narrows|narrowed|narrowing|tighten|tightens|tightened|tightening|widen|widens|widened|widening)\b'
-          # Profit warnings / alerts
           - '\bprofit\s+(warning|alert)s?\b'
-          # Impairments / write-downs / write-offs
-          - '\b(write[ -]?down|write[ -]?off|impairment(?:\s+charge)?s?)\b'
-          # If you insist on "increase", use a tight window instead of 40 chars:
-          # - '\b(increase|increases|increased|increasing)\b.{0,12}\b(guidance|outlook|forecast)s?\b'
-          # - '\b(guidance|outlook|forecast)s?\b.{0,12}\b(increase|increases|increased|increasing)\b'
-
+          - '\b(?:write[ -]?down|write[ -]?off|impairment(?:\s+charge)?s?)\b'
         sv_any:
-          - '\b(höjer|höjde|höjs|sänker|sänkte|sänks|reviderar|reviderades?|uppdaterar|uppdaterades?|återkallar|drar\s+tillbaka|suspenderar|bekräftar|lämnar)\b.{0,40}\b(prognos(en)?|utsikter(na)?)\b'
-          - '\b(prognos(en)?|utsikter(na)?)\b.{0,40}\b(höjs?|sänks?|revideras|uppdateras|återkallas|suspenderas|bekräftas|lämnas)\b'
           - '\bomvänd\s+vinstvarning\b|\bvinstvarning\b'
-          - '\b(nedskrivning(ar)?|nedskrivnings(post|kostnad)(er)?|engångsnedskrivning(ar)?)\b'
+          - '\b(nedskrivning(ar)?|nedskrivnings(post|kostnad)(er)?|engångsnedskrivning(ar)?|nedskrivningsbehov)\b'
 
-      # NEW: forward-looking cue words/phrases (broad, used with proximity)
+      # Forward-looking cues (unchanged; used elsewhere)
       fwd_cue:
-        en_any:
-          - '\b(expect|expects|project|projects|aim|target|targets|anticipate|plan|intend|will|should|we\s+(?:see|believe|expect))\b'
-        sv_any:
-          - '\b(förväntar|räknar\s+med|siktar|målsätter|planerar|avser|kommer\s+att|bör|vi\s+ser|vi\s+tror)\b'
+        terms:
+          en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect"]
+          sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
 
+      # === NEW: token proximity rules for guidance ===
+      proximity_triggers:
+        - name: en_guidance_change
+          type: guidance_change
+          lang: en
+          verbs: [raise, raises, raised, raising,
+                  lower, lowers, lowered, lowering,
+                  revise, revises, revised, revising,
+                  update, updates, updated, updating,
+                  withdraw, withdraws, withdrew, withdrawn,
+                  suspend, suspends, suspended, suspending,
+                  narrow, narrows, narrowed, narrowing,
+                  tighten, tightens, tightened, tightening,
+                  widen, widens, widened, widening]
+          metrics: ["guidance","guidance range","outlook","forecast",
+                    "full year guidance","full-year guidance","fy guidance"]
+          window_tokens: 10
+          same_sentence: true
+         
+        #unchanged / reaffirm (verbs)
+        - name: en_guidance_unchanged_verbal
+          type: guidance_unchanged
+          lang: en
+          verbs: [reaffirm, reaffirms, reaffirmed, reaffirming,
+                  maintain, maintains, maintained, maintaining,
+                  keep, keeps, kept, keeping,
+                  leave, leaves, left, leaving]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: sv_guidance_unchanged_verbal
+          type: guidance_unchanged
+          lang: sv
+          verbs: ["bekräftar","lämnar","vidhåller"]
+          metrics: ["prognos","prognosen","utsikter","utsikterna","guidning","helårsprognos"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: en_guidance_unchanged_token
+          type: guidance_unchanged
+          lang: en
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          unchanged_tokens: "@unchanged_markers_en"   # resolve from thresholds.proximity
+          window_tokens: 6
+          same_sentence: true
+
+        - name: sv_guidance_unchanged_token
+          type: guidance_unchanged
+          lang: sv
+          metrics: ["prognos","prognosen","utsikter","utsikterna","guidning","helårsprognos"]
+          unchanged_tokens: "@unchanged_markers_sv"
+          window_tokens: 6
+          same_sentence: true
+
+            # Optional: allow "increase" but only with a very tight window.
+        - name: en_increase_guidance
+          type: guidance_change
+          lang: en
+          verbs: [increase, increases, increased, increasing]
+          metrics: ["guidance","outlook","forecast"]
+          window_tokens: 4
+          same_sentence: true
+
+        - name: sv_guidance_change
+          type: guidance_change
+          lang: sv
+          verbs: ["höjer","höjde","höjs",
+                  "sänker","sänkte","sänks",
+                  "reviderar","reviderades",
+                  "uppdaterar","uppdaterades",
+                  "återkallar","drar tillbaka",
+                  "suspenderar"]
+          metrics: ["prognos","prognosen","utsikter","utsikterna","guidning","helårsprognos"]
+          window_tokens: 10
+          same_sentence: true
+          
+        - name: en_guidance_initiate
+          type: guidance_initiate
+          lang: en
+          verbs: [initiate, initiates, initiated, initiating,
+                  provide, provides, provided, providing,
+                  issue, issues, issued, issuing,
+                  set, sets, set, setting,
+                  introduce, introduces, introduced, introducing,
+                  publish, publishes, published, publishing,
+                  present, presents, presented, presenting]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 10
+          same_sentence: true
+          require_period_token: true
+
+        - name: sv_guidance_initiate
+          type: guidance_initiate
+          lang: sv
+          verbs: ["initierar","lämnar","tillhandahåller","utfärdar","sätter","introducerar","publicerar","presenterar"]
+          metrics: ["prognos","utsikter","guidning","helårsprognos"]
+          window_tokens: 10
+          same_sentence: true
+          require_period_token: true
+
+
+      # numbers-near-metric (statement lines w/out direction)
+      metric_numeric_triggers:
+        - name: en_guidance_numeric
+          type: guidance_stated
+          lang: en
+          metrics: ["guidance","guidance range","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 8
+          same_sentence: true
+          require_number: true
+
+        - name: sv_guidance_numeric
+          type: guidance_stated
+          lang: sv
+          metrics: ["prognos","prognosen","utsikter","utsikterna","guidning","helårsprognos"]
+          window_tokens: 8
+          same_sentence: true
+          require_number: true
+        
+
+      # Directional language (kept; minor tidy)
       dir_up:
         any:
           - '\b(improv\w+|increase\w*|expand\w*|grow\w*|strengthen\w*|better)\b'
           - '\b(förbättra\w*|öka\w*|stärk\w*|bättre)\b'
-
       dir_dn:
         any:
           - '\b(declin\w+|decreas\w+|contract\w*|pressure|pressures|headwind\w*|worse)\b'
@@ -75,7 +191,7 @@ events:
       disclaimer_inline:
         any:
           - '(statements?\s+that\s+are\s+not\s+historical|subject\s+to\s+risks\s+and\s+uncertainties|actual\s+results\s+may\s+differ\s+materially)'
-      
+
       suppressors:
         analyst:
           any:
@@ -90,69 +206,13 @@ events:
           any:
             - '\b(notes?|coupon|bond|loan|interest|facility|revolver|obligation|kupong|ränta|lån|kreditfacilitet)\b'
 
-    # Optional: hot-tunable term lists for textutils proximity/direction
+    # Optional term lists used elsewhere (unchanged aside from tiny additions)
     terms:
-      margin_allowed_prefixes:
-        - operating
-        - op.
-        - EBIT
-        - EBITDA
-        - EBITA
-        - rörelse
-        - ebit
-        - ebitda
-        - ebita
-        
-      fwd_cue_terms:
-        - expect
-        - expects
-        - project
-        - aim
-        - target
-        - anticipate
-        - we see
-        - we believe
-        - will
-        - should
-        - förväntar
-        - räknar med
-        - siktar
-        - målsätter
-        - kommer att
-        - bör
-        - vi ser
-        - vi tror
-      dir_up_terms:
-        - improve
-        - improving
-        - increase
-        - increasing
-        - expand
-        - grow
-        - strengthen
-        - better
-        - förbättra
-        - förbättras
-        - öka
-        - ökande
-        - stärka
-        - bättre
-      dir_dn_terms:
-        - decline
-        - declining
-        - decrease
-        - decreasing
-        - contract
-        - pressure
-        - headwinds
-        - worse
-        - försämra
-        - försämras
-        - minska
-        - minskande
-        - press
-        - motvind
-        - sämre
+      margin_allowed_prefixes: [operating, "op.", EBIT, EBITDA, EBITA, rörelse, ebit, ebitda, ebita]
+      dir_up_terms: [improve, improving, increase, increasing, expand, grow, strengthen, better,
+                     förbättra, förbättras, öka, ökande, stärka, bättre]
+      dir_dn_terms: [decline, declining, decrease, decreasing, contract, pressure, headwinds, worse,
+                     försämra, försämras, minska, minskande, press, motvind, sämre]
 
 
   - key: equity_raise

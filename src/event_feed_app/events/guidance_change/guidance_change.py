@@ -583,18 +583,18 @@ def run_guidance_change_job(
                 except Exception as e:
                     log.warning("Failed to write L1 simple cache (%s): %s", SIMPLE_L1_CACHE, e)
 
-    # ---- Common step: only keep earnings-related items before plugin detection ----
-    base_df = select_earnings(base_df)
-    log.info("Rules-first earnings candidates: %d / %d", len(base_df), len(df))
-    if base_df.empty:
-        log.info("No earnings candidates — exiting early.")
-        return {"versions": 0, "events": 0}
+    # # ---- Common step: only keep earnings-related items before plugin detection ----
+    # base_df = select_earnings(base_df)
+    # log.info("Rules-first earnings candidates: %d / %d", len(base_df), len(df))
+    # if base_df.empty:
+    #     log.info("No earnings candidates — exiting early.")
+    #     return {"versions": 0, "events": 0}
 
     # Run plugin
     for doc in base_df.to_dict("records"):
         # now that triggers come from YAML, it's safe/useful to gate here
-        if not plugin.gate(doc):
-            continue
+        #if not plugin.gate(doc):
+        #    continue
 
         title = doc.get("title_clean", "")
         body = doc.get("body_clean", "")
