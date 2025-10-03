@@ -365,6 +365,7 @@ class GuidanceChangePlugin(EventPlugin):
 
     def __init__(self):
         """Initialize fields and compiled regex holders."""
+        self.event_key = "guidance_change"
         # YAML / runtime config
         self.cfg: dict = {}
         self.thresholds: dict = {}
@@ -425,17 +426,28 @@ class GuidanceChangePlugin(EventPlugin):
         Reads everything from the event node matching self.event_key ("guidance_change").
         """
         import re
-
+        
         # -------- Root + event node --------
         self.cfg = cfg or {}
         events = {e.get("key"): e for e in (self.cfg.get("events") or [])}
         ev = events.get(self.event_key, {})  # self.event_key == "guidance_change"
+        raw = self.cfg.get("events") or {}
+        if isinstance(raw, dict):
+            ev = raw.get(self.event_key, {})            # supports {events: {guidance_change: {...}}}
+        else:
+            # supports list form: events: [{key: guidance_change, ...}]
+            ev = next((e for e in (raw or []) if (e or {}).get("key") == self.event_key), {})
 
-        # Blocks under the event node
         self.thresholds  = ev.get("thresholds", {}) or {}
         patterns_cfg     = ev.get("patterns",   {}) or {}
         terms_cfg        = ev.get("terms",      {}) or {}
         tokens_cfg       = ev.get("tokens",     {}) or {}
+
+        # # Blocks under the event node
+        # self.thresholds  = ev.get("thresholds", {}) or {}
+        # patterns_cfg     = ev.get("patterns",   {}) or {}
+        # terms_cfg        = ev.get("terms",      {}) or {}
+        # tokens_cfg       = ev.get("tokens",     {}) or {}
 
         # -------- Strong triggers (regex) --------
         self.trigger_regexes = _compile_trigger_list(patterns_cfg.get("triggers") or patterns_cfg)
@@ -521,13 +533,24 @@ class GuidanceChangePlugin(EventPlugin):
         # -------- Metrics (literal phrases) --------
         self.fin_metric_terms = sorted(set(FIN_METRICS.keys()) | {"like for like"})
 
-        # -------- Proximity rules (verbs/metrics + unchanged tokens) --------
+        # # -------- Proximity rules (verbs/metrics + unchanged tokens) --------
+        # def _resolve_tokens(val):
+        #     if isinstance(val, str) and val.startswith("@"):
+        #         key = val[1:]
+        #         return list(self.thresholds.get(key) or prox.get(key) or [])
+        #     return list(val or [])
+        
+        # --- widen @token resolution to terms/patterns too ---
         def _resolve_tokens(val):
             if isinstance(val, str) and val.startswith("@"):
                 key = val[1:]
-                return list(self.thresholds.get(key) or prox.get(key) or [])
+                return list(self.thresholds.get(key)
+                            or (self.thresholds.get("proximity") or {}).get(key)
+                            or terms_cfg.get(key, [])
+                            or patterns_cfg.get(key, [])
+                            or [])
             return list(val or [])
-
+        
         self.prox_rules = []
         prox_src = (patterns_cfg.get("guidance_proximity_rules")
                     or patterns_cfg.get("proximity_triggers")
@@ -1320,8 +1343,9 @@ class GuidanceChangePlugin(EventPlugin):
                         or PERCENT_RANGE.search(sent) or CCY_NUMBER.search(sent)):
                     return
                 
-            # cue_term = (prox_hit["meta"].get("cue_term") or "")
-            # _dprint("[guidance_v2 cue_term]", f"{cue_term=}")
+            #cue_term = (prox_hit["meta"].get("cue_term") or "")
+            cue_term = (prox_hit.get("meta", {}).get("cue_term") or "")
+            _dprint("[guidance_v2 cue_term]", f"{cue_term=}")
             # if self.rx_expect_family.search(cue_term):
             #     emode = self._expected_mode(sent, cue_term=cue_term)
             #     if emode == "past":
@@ -1379,8 +1403,6 @@ class GuidanceChangePlugin(EventPlugin):
                 f"look_right={self.look_right_sentences}",
         )
 
-
-                
         # Trigger provenance
         if trig:
             _dprint("[guidance_v2 trigger]",
