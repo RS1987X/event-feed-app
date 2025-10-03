@@ -4,7 +4,7 @@ import pathlib, yaml
 import pytest
 from event_feed_app.events.guidance_change.plugin import GuidanceChangePlugin
 
-YAML_PATH = pathlib.Path("src/event_feed_app/configs/significant_events.yaml")
+YAML_PATH = pathlib.Path("tests/guidance_change_tests/data/guidance_change_test.yml")
 
 @pytest.fixture(scope="session")
 def loaded_yaml():

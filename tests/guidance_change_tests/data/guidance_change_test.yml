@@ -1,4 +1,5 @@
 # tests/data/guidance_change_test.yml
+
 events:
   - key: guidance_change
     label: Guidance change for company or competitor
@@ -40,12 +41,12 @@ events:
           en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect"]
           sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
 
-      proximity_triggers:
+      guidance_proximity_rules:
         - name: en_guidance_change
           type: guidance_change
           lang: en
           verbs: [raise, raises, raised, raising, lower, lowers, lowered, lowering, revise, revises, revised, revising, update, updates, updated, updating, withdraw, withdraws, withdrew, withdrawn, suspend, suspends, suspended, suspending, narrow, narrows, narrowed, narrowing, widen, widens, widened, widening]
-          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance","guidance range"]
+          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance","guidance range"]
           window_tokens: 10
           same_sentence: true
 
@@ -53,14 +54,14 @@ events:
           type: guidance_unchanged
           lang: en
           verbs: [reaffirm, reaffirms, reaffirmed, reaffirming, maintain, maintains, maintained, maintaining, keep, keeps, kept, keeping, leave, leaves, left, leaving]
-          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
           window_tokens: 10
           same_sentence: true
 
         - name: en_guidance_unchanged_token
           type: guidance_unchanged
           lang: en
-          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
           unchanged_tokens: "@unchanged_markers_en"
           window_tokens: 6
           same_sentence: true
@@ -69,16 +70,16 @@ events:
           type: guidance_initiate
           lang: en
           verbs: [initiate, initiates, initiated, initiating, provide, provides, provided, providing, issue, issues, issued, issuing, set, sets, setting, introduce, introduces, introduced, introducing, publish, publishes, published, publishing, present, presents, presented, presenting]
-          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
           window_tokens: 10
           same_sentence: true
           require_period_token: true
 
-      metric_numeric_triggers:
+      numeric_guidance_rules:
         - name: en_guidance_numeric
           type: guidance_stated
           lang: en
-          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
           window_tokens: 8
           same_sentence: true
           require_number: true
@@ -116,3 +117,23 @@ events:
       margin_allowed_prefixes: [operating, "op.", EBIT, EBITDA, EBITA, rörelse, ebit, ebitda, ebita]
       dir_up_terms: [improve, improving, increase, increasing, expand, grow, strengthen, better, förbättra, förbättras, öka, ökande, stärka, bättre]
       dir_dn_terms: [decline, declining, decrease, decreasing, contract, pressure, headwinds, worse, försämra, försämras, minska, minskande, press, motvind, sämre]
+
+    tokens:
+      expected_forward_en:
+        - "is expected"
+        - "are expected"
+        - "expected to"
+        - "expected at"
+        - "expected around"
+        - "we expect"
+        - "the company expects"
+      expected_past_en:
+        - "as expected"
+        - "was expected"
+        - "were expected"
+        - "was expecting"
+        - "were expecting"
+        - "had expected"
+        - "had been expected"
+        - "previously expected"
+        - "earlier expected"

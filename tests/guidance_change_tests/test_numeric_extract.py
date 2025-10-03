@@ -28,3 +28,5 @@ def test_percent_margin_extraction_under_guidance(plugin, base_doc):
     assert pct, cands
     # Approx band range should convert to range type
     assert pct[0]["value_type"] in {"range", "point"}
+
+

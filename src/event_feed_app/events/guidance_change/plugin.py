@@ -14,7 +14,7 @@ from event_feed_app.utils.text import norm, tokenize
 
 _TOKEN_RX = re.compile(r"[a-z0-9åäöæøéèüïóáç\-]+", re.IGNORECASE)
 # ---------------- Metric hints & regexes ----------------
-METRIC_MAP = {
+FIN_METRICS = {
     # text -> (metric, metric_kind, unit)
     "revenue": ("revenue","level","ccy"),
     "net sales": ("net_sales","level","ccy"),
@@ -66,6 +66,11 @@ CCY_RANGE = re.compile(
     r"(?:\s*(?P<scale>million|mn|m|billion|bn|thousand|k))?",
     re.I
 )
+
+import os
+def _dprint(*args, **kwargs):
+    if os.environ.get("GUIDANCE_DEBUG") == "1":
+        print(*args, **kwargs)
 
 def _apply_scale(value: float, scale: str | None) -> float:
     """Normalize to *millions* of currency."""
@@ -193,41 +198,49 @@ def _find_block_range(text: str, rx: re.Pattern) -> Optional[tuple[int,int]]:
     s, _ = m.span()
     return (s, len(text))
 
+def _choose_metric_for_number(ms: int, me: int, sent_text: str,
+                              metric_spans: list[tuple[int,int,str]],
+                              token_window: int = 8, char_window: int = 120):
+    """
+    Pick the most plausible metric for a number/range at [ms,me) inside `sent_text`.
+    Heuristics:
+      1) nearest metric to the LEFT within small window,
+      2) else nearest RIGHT if a linking preposition ('in|for|of|i|för|på') is between
+         the number and the metric or it's very close in tokens,
+      3) else global nearest by char distance.
+    Returns (metric_key, (start,end)) or (None, None) if no metric spans.
+    """
+    if not metric_spans:
+        return None, None
 
-def _metric_spans(text: str) -> List[tuple[int,int,str]]:
-    spans: List[tuple[int,int,str]] = []
-    for k in METRIC_MAP.keys():
-        # Skip generic 'margin' if still present in METRIC_MAP
-        if k.strip().lower() == "margin":
-            continue
-        k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
-        for m in k_rx.finditer(text):
-            spans.append((m.start(), m.end(), k))
+    # Partition by side
+    left  = [(k, (a,b)) for (a,b,k) in metric_spans if b <= ms]
+    right = [(k, (a,b)) for (a,b,k) in metric_spans if a >= me]
 
-    # Guard Swedish 'jämförbar' (require a growth/sales word nearby)
-    for m in re.finditer(r"\bjämförbar\b", text, re.I):
-        ctx_s = max(0, m.start() - 12)
-        ctx_e = min(len(text), m.end() + 12)
-        if re.search(r"(tillväxt|försäljning)", text[ctx_s:ctx_e], re.I):
-            spans.append((m.start(), m.end(), "jämförbar"))
+    # Helper: token distance in the substring (cheap)
+    def _tokdist(sub: str) -> int:
+        from event_feed_app.utils.text import tokenize
+        return len(tokenize(sub))
 
-    # Guard unqualified 'margin' tokens (operate only if still needed)
-    for m in re.finditer(r"\bmargin\b", text, re.I):
-        ctx_s = max(0, m.start() - 20)
-        prefix = text[ctx_s:m.start()]
-        if any(re.search(rf"\b{re.escape(p)}\b", prefix, re.I) for p in getattr(plugin, "margin_prefixes", [])):
-            spans.append((m.start(), m.end(), "margin"))
-    return spans
+    # 1) Prefer nearest on the LEFT within small char/token window
+    if left:
+        k, (a,b) = min(left, key=lambda x: ms - x[1][1])  # smallest gap on the left
+        if (ms - b) <= char_window and _tokdist(sent_text[b:ms]) <= token_window:
+            return k, (a,b)
 
+    # 2) RIGHT with preposition link or very close
+    if right:
+        k, (a,b) = min(right, key=lambda x: x[1][0] - me)
+        between = sent_text[me:a]
+        if (re.search(r"\b(in|for|of|i|för|på)\b", between, re.I)
+            or _tokdist(between) <= token_window
+            or (a - me) <= char_window):
+            return k, (a,b)
 
-def _nearest_distance(span: tuple[int,int], spans2: List[tuple[int,int,str]]) -> Optional[int]:
-    """Min char distance from span to any in spans2."""
-    s1, e1 = span[0], span[1]
-    best = None
-    for s2, e2, _ in spans2:
-        d = 0 if (s1 <= e2 and s2 <= e1) else min(abs(s1 - e2), abs(s2 - e1))
-        best = d if best is None or d < best else best
-    return best
+    # 3) Fallback: global nearest by char distance
+    k, (a,b) = min(((k,(a,b)) for (a,b,k) in metric_spans),
+                   key=lambda x: min(abs(ms - x[1][0]), abs(me - x[1][1])))
+    return k, (a,b)
 
 # --- earnings-like label helper (strings, lists, delimited strings) ---
 _EARNINGS_LABELS = {"earnings_report","earnings","results","q1","q2","q3","q4"}
@@ -287,15 +300,34 @@ COMPANY_PRONOUNS = re.compile(
     re.I
 )
 
-# Simple sentence splitter with spans
-_SENT_RX = re.compile(r"[^\.!\?\;\n]+(?:[\.\!\?\;]+|\n+|$)", re.U)
+# # --- Sentence splitting: don't break on decimals like 1.700 or 2.3 ---
+# # Split on: period/question/exclamation/semicolon that are NOT part of a number, or on newlines.
+# _SPLIT_RX = re.compile(r"(?:(?<!\d)[.!?;](?!\d))|\n+")
+
+# --- Sentence splitting: don't break on decimals like 1.700 or 2.3 ---
+# Also don't split after common abbreviations such as "approx.", "ca.", or "c."
+_SPLIT_RX = re.compile(
+    r"(?:(?<!\d)"           # not part of a number
+    r"(?<!\bapprox)"        # don't split after 'approx.'
+    r"(?<!\bca)"            # don't split after 'ca.'
+    r"(?<!\bc)"             # don't split after 'c.'
+    r"[.!?;](?!\d))"        # the actual splitter punctuation
+    r"|\n+",
+    re.I
+)
+
 def _sentences_with_spans(text: str) -> list[tuple[int,int,str]]:
     out = []
-    for m in _SENT_RX.finditer(text):
-        s, e = m.span()
+    s = 0
+    for m in _SPLIT_RX.finditer(text):
+        e = m.start()
         seg = text[s:e].strip()
         if seg:
             out.append((s, e, seg))
+        s = m.end()
+    tail = text[s:].strip()
+    if tail:
+        out.append((s, len(text), tail))
     return out
 
 def _span_in_sentence(span: tuple[int,int], sent_span: tuple[int,int]) -> bool:
@@ -371,57 +403,88 @@ class GuidanceChangePlugin(EventPlugin):
         self.fwd_cue_terms: list[str] = []
         self.dir_up_terms:  list[str] = []
         self.dir_dn_terms:  list[str] = []
-        self.margin_prefixes: list[str] = []
-
+        #self.margin_prefixes: list[str] = []
+        self.margin_prefixes = ("operating","gross","ebit","ebitda","net","rörelse","brutto")
         # Metrics: literal phrases to scan for (built from METRIC_MAP)
-        self.metric_terms: list[str] = []
+        self.fin_metric_terms: list[str] = []
 
         # NEW: parsed rule sets from YAML
         self.prox_rules: list[dict] = []     # patterns.proximity_triggers
         self.numeric_rules: list[dict] = []  # patterns.metric_numeric_triggers
+        # safe defaults until configure() is called
+        self.expected_forward_terms = ()
+        self.expected_past_terms = ()
+        self.rx_expected_forward = None
+        self.rx_expected_past = None
+        self.rx_expect_family = re.compile(r"\b(expect\w*|förvänt\w*)\b", re.I)
+
 
     def configure(self, cfg: Optional[dict]) -> None:
         """
         Ingest YAML config, compile regexes, and normalize proximity/numeric rules.
+        Reads everything from the event node matching self.event_key ("guidance_change").
         """
+        import re
+
+        # -------- Root + event node --------
         self.cfg = cfg or {}
-        self.thresholds = self.cfg.get("thresholds", {}) or {}
-        patterns_cfg = (self.cfg).get("patterns") or {}
+        events = {e.get("key"): e for e in (self.cfg.get("events") or [])}
+        ev = events.get(self.event_key, {})  # self.event_key == "guidance_change"
 
-        # ---------------- Strong triggers (regex) ----------------
-        # Accept both the new nested shape and legacy flat patterns
+        # Blocks under the event node
+        self.thresholds  = ev.get("thresholds", {}) or {}
+        patterns_cfg     = ev.get("patterns",   {}) or {}
+        terms_cfg        = ev.get("terms",      {}) or {}
+        tokens_cfg       = ev.get("tokens",     {}) or {}
+
+        # -------- Strong triggers (regex) --------
         self.trigger_regexes = _compile_trigger_list(patterns_cfg.get("triggers") or patterns_cfg)
-        if self.trigger_regexes:
-            self.trigger_rx = re.compile(
-                "|".join(f"(?:{rx.pattern})" for _, rx in self.trigger_regexes), re.I
-            )
-        else:
-            self.trigger_rx = _rx_match_nothing()
+        self.trigger_rx = (
+            re.compile("|".join(f"(?:{rx.pattern})" for _, rx in self.trigger_regexes), re.I)
+            if self.trigger_regexes else _rx_match_nothing()
+        )
 
-        # ---------------- Proximity tuning ----------------
+        # -------- Proximity tuning --------
         prox = (self.thresholds.get("proximity") or {})
         self.prox_mode   = str(prox.get("mode", "token")).lower()
         self.prox_chars  = int(prox.get("fwd_cue_metric_chars",
-                                self.thresholds.get("fwd_cue_metric_window_chars", 120)))
+                            self.thresholds.get("fwd_cue_metric_window_chars", 120)))
         self.prox_tokens = int(prox.get("fwd_cue_metric_tokens", 25))
         self.allow_cross_sentence = bool(prox.get("allow_cross_sentence", False))
         self.look_left_sentences  = int(prox.get("look_left_sentences", 0))
         self.look_right_sentences = int(prox.get("look_right_sentences", 0))
 
-        # Unchanged markers (used by *_unchanged_token rules)
-        self.unchanged_markers["en"] = list(prox.get("unchanged_markers_en") or [])
-        self.unchanged_markers["sv"] = list(prox.get("unchanged_markers_sv") or [])
+        # Unchanged markers (prefer thresholds-level; fallback to proximity subkey if present)
+        self.unchanged_markers["en"] = list(
+            self.thresholds.get("unchanged_markers_en")
+            or prox.get("unchanged_markers_en")
+            or []
+        )
+        self.unchanged_markers["sv"] = list(
+            self.thresholds.get("unchanged_markers_sv")
+            or prox.get("unchanged_markers_sv")
+            or []
+        )
 
-        # ---------------- Forward-looking cues (literal) ----------------
+        # -------- Forward-looking cues (literal) --------
         fwd_cfg = (patterns_cfg.get("fwd_cue") or {})
-        terms_en = list((fwd_cfg.get("terms") or {}).get("en") or [])
-        terms_sv = list((fwd_cfg.get("terms") or {}).get("sv") or [])
-        # Allow overrides via top-level terms.fwd_cue_terms
-        terms_cfg = (self.cfg.get("terms") or {})
-        tune_terms = list(terms_cfg.get("fwd_cue_terms") or [])
-        self.fwd_cue_terms = [str(x) for x in (terms_en + terms_sv + tune_terms)]
+        fwd_en  = list((fwd_cfg.get("terms") or {}).get("en") or [])
+        fwd_sv  = list((fwd_cfg.get("terms") or {}).get("sv") or [])
+        tune_terms = list((terms_cfg or {}).get("fwd_cue_terms") or [])
+        self.fwd_cue_terms = [str(x) for x in (fwd_en + fwd_sv + tune_terms)]
 
-        # ---------------- Directional / invite / disclaimers (regex unions) ----------------
+        # Compile a single union regex for “forward cues” (used by past-tense suppression guards)
+        def _wb(term: str) -> str:
+            return r'(?<!\w)' + re.escape(term).replace(r'\ ', r'\s+') + r'(?!\w)'
+
+        self.rx_fwd_cues = (
+            re.compile("|".join(_wb(t) for t in self.fwd_cue_terms), re.I)
+            if self.fwd_cue_terms else _rx_match_nothing()
+        )
+        # Back-compat alias if other code references rx_fwd_cue
+        self.rx_fwd_cue = self.rx_fwd_cues
+
+        # -------- Directional / invite / disclaimers (regex unions) --------
         self.rx_dir_up         = _compile_union_group(patterns_cfg, "dir_up")
         self.rx_dir_dn         = _compile_union_group(patterns_cfg, "dir_dn")
         self.rx_invite         = _compile_union_group(patterns_cfg, "invite")
@@ -435,7 +498,7 @@ class GuidanceChangePlugin(EventPlugin):
         self.rx_sup_ma      = _compile_union_from_dict(sups.get("ma"))
         self.rx_sup_debt    = _compile_union_from_dict(sups.get("debt"))
 
-        # ---------------- Term lists (with sensible defaults) ----------------
+        # -------- Term lists (with sensible defaults) --------
         def _get_terms(key: str, fallback: list[str]) -> list[str]:
             vals = terms_cfg.get(key)
             return [str(x) for x in vals] if isinstance(vals, list) and vals else fallback
@@ -447,33 +510,18 @@ class GuidanceChangePlugin(EventPlugin):
         self.dir_up_terms = _get_terms(
             "dir_up_terms",
             ["improve","improving","increase","increasing","expand","grow","strengthen","better",
-             "förbättra","förbättras","öka","ökande","stärka","bättre"],
+            "förbättra","förbättras","öka","ökande","stärka","bättre"],
         )
         self.dir_dn_terms = _get_terms(
             "dir_dn_terms",
             ["decline","declining","decrease","decreasing","contract","pressure","headwinds","worse",
-             "försämra","försämras","minska","minskande","press","motvind","sämre"],
+            "försämra","försämras","minska","minskande","press","motvind","sämre"],
         )
 
-        # ---------------- Metrics (literal phrases) ----------------
-        # METRIC_MAP must exist in your module; it's a dict: str -> (metric, kind, unit)
-        # Add common alias to be safe
-        self.metric_terms = sorted(set(METRIC_MAP.keys()) | {"like for like"})
-        # === FIX: unchanged markers (check thresholds first, then prox) ===
-        self.unchanged_markers["en"] = list(
-            self.thresholds.get("unchanged_markers_en")
-            or prox.get("unchanged_markers_en")
-            or []
-        )
-        self.unchanged_markers["sv"] = list(
-            self.thresholds.get("unchanged_markers_sv")
-            or prox.get("unchanged_markers_sv")
-            or []
-        )
+        # -------- Metrics (literal phrases) --------
+        self.fin_metric_terms = sorted(set(FIN_METRICS.keys()) | {"like for like"})
 
-
-        # ---------------- Proximity rules (verbs/metrics + unchanged tokens) ----------------
-        # helper to resolve @unchanged_markers_en indirection
+        # -------- Proximity rules (verbs/metrics + unchanged tokens) --------
         def _resolve_tokens(val):
             if isinstance(val, str) and val.startswith("@"):
                 key = val[1:]
@@ -481,32 +529,60 @@ class GuidanceChangePlugin(EventPlugin):
             return list(val or [])
 
         self.prox_rules = []
-        for rule in (patterns_cfg.get("proximity_triggers") or []):
-            r = dict(rule)  # shallow copy
-            r["name"]              = r.get("name") or "unnamed_prox_rule"
-            r["type"]              = r.get("type") or "guidance_change"
-            r["lang"]              = r.get("lang") or "en"
-            r["verbs"]             = _resolve_tokens(r.get("verbs"))
-            r["metrics"]           = _resolve_tokens(r.get("metrics"))
-            r["unchanged_tokens"]  = _resolve_tokens(r.get("unchanged_tokens"))
-            r["window_tokens"]     = int(r.get("window_tokens") or self.prox_tokens)
-            r["same_sentence"]     = bool(r.get("same_sentence", True))
+        prox_src = (patterns_cfg.get("guidance_proximity_rules")
+                    or patterns_cfg.get("proximity_triggers")
+                    or [])
+        for rule in prox_src:
+            r = dict(rule)
+            r["name"]  = r.get("name") or "unnamed_prox_rule"
+            r["type"]  = r.get("type") or "guidance_change"
+            r["lang"]  = r.get("lang") or "en"
+            r["verbs"] = _resolve_tokens(r.get("verbs"))
+
+            gm = r.get("guidance_markers")
+            if gm is None:
+                gm = r.get("metrics")  # legacy key
+            r["guidance_markers"] = _resolve_tokens(gm)
+
+            r["unchanged_tokens"]    = _resolve_tokens(r.get("unchanged_tokens"))
+            r["window_tokens"]       = int(r.get("window_tokens") or self.prox_tokens)
+            r["same_sentence"]       = bool(r.get("same_sentence", True))
             r["require_period_token"] = bool(r.get("require_period_token", False))
             self.prox_rules.append(r)
 
-        # ---------------- Numeric (statement-only) rules ----------------
+        # -------- Numeric (statement-only) rules --------
         self.numeric_rules = []
-        for rule in (patterns_cfg.get("metric_numeric_triggers") or []):
+        num_src = (patterns_cfg.get("numeric_guidance_rules")
+                or patterns_cfg.get("metric_numeric_triggers")
+                or [])
+        for rule in num_src:
             r = dict(rule)
-            r["name"]          = r.get("name") or "unnamed_numeric_rule"
-            r["type"]          = r.get("type") or "guidance_stated"
-            r["lang"]          = r.get("lang") or "en"
-            r["metrics"]       = _resolve_tokens(r.get("metrics"))
-            r["window_tokens"] = int(r.get("window_tokens") or self.prox_tokens)
-            r["same_sentence"] = bool(r.get("same_sentence", True))
-            r["require_number"]= bool(r.get("require_number", True))
+            r["name"] = r.get("name") or "unnamed_numeric_rule"
+            r["type"] = r.get("type") or "guidance_stated"
+            r["lang"] = r.get("lang") or "en"
+
+            gm = r.get("guidance_markers")
+            if gm is None:
+                gm = r.get("metrics")  # legacy key
+            r["guidance_markers"] = _resolve_tokens(gm)
+
+            r["window_tokens"]  = int(r.get("window_tokens") or self.prox_tokens)
+            r["same_sentence"]  = bool(r.get("same_sentence", True))
+            r["require_number"] = bool(r.get("require_number", True))
             self.numeric_rules.append(r)
 
+        # -------- “expected” tokens (forward vs. past) --------
+        self.expected_forward_terms = tuple(tokens_cfg.get("expected_forward_en", []))
+        self.expected_past_terms    = tuple(tokens_cfg.get("expected_past_en", []))
+        self.rx_expect_family       = re.compile(r"\b(expect\w*|förvänt\w*)\b", re.I)
+
+
+    # in the plugin class
+    def detect(self, doc):
+        if getattr(self, "_use_v2", False):
+            yield from self._detect_v2(doc)
+        else:
+            yield from self._detect_v1(doc)
 # '
 #     # ------ 1) Gate: cheap prefilter ------
 #     def gate(self, doc: Mapping[str, Any]) -> bool:
@@ -520,7 +596,7 @@ class GuidanceChangePlugin(EventPlugin):
 #         return bool(self.trigger_rx.search(head))
   
     # ------ 2) Detect numeric/text candidates ------
-    def detect(self, doc: Mapping[str, Any]) -> Iterable[dict]:
+    def _detect_v1(self, doc: Mapping[str, Any]) -> Iterable[dict]:
         """
         Extract earnings-guidance candidates from a document (title/body). A document
         passes the gate if it has either (A) a strong trigger or (B) a forward-looking
@@ -686,7 +762,7 @@ class GuidanceChangePlugin(EventPlugin):
             # Case A: verbs + metrics (e.g., raise/lower/reaffirm near guidance)
             if r.get("verbs"):
                 ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["verbs"], set_b=r["metrics"],
+                    text, set_a=r["verbs"], set_b=r["guidance_markers"],
                     window=r["window_tokens"], min_stem=3,
                     same_sentence=r.get("same_sentence", True)
                 )
@@ -694,7 +770,7 @@ class GuidanceChangePlugin(EventPlugin):
             # Case B: metric + unchanged markers (verb-less: "guidance unchanged")
             elif r.get("unchanged_tokens"):
                 ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["metrics"], set_b=r["unchanged_tokens"],
+                    text, set_a=r["guidance_markers"], set_b=r["unchanged_tokens"],
                     window=r["window_tokens"], min_stem=3,
                     same_sentence=r.get("same_sentence", True)
                 )
@@ -733,9 +809,9 @@ class GuidanceChangePlugin(EventPlugin):
                     break
          # ---------------- Legacy fallback: fwd-cue ↔ metric proximity ----------------
         # Covers cases like: "expects revenue to be EUR ..." (no 'guidance' token)
-        if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.metric_terms:
+        if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
             ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
-                text, self.fwd_cue_terms, self.metric_terms,
+                text, self.fwd_cue_terms, self.fin_metric_terms,
                 window=self.prox_tokens, min_stem=3
             )
             if ok_legacy and meta_legacy:
@@ -809,7 +885,7 @@ class GuidanceChangePlugin(EventPlugin):
 
         # ---------------- Metric hints & direction ----------------
         hits: list[Tuple[str, Tuple[str,str,str]]] = []
-        for k, v in METRIC_MAP.items():
+        for k, v in FIN_METRICS.items():
             k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
             if k_rx.search(text):
                 hits.append((k, v))
@@ -848,7 +924,7 @@ class GuidanceChangePlugin(EventPlugin):
 
             # Require a metric hint in the SAME sentence (guard generic 'margin')
             local_hits = []
-            for k, v in METRIC_MAP.items():
+            for k, v in FIN_METRICS.items():
                 k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
                 if k_rx.search(s):
                     if k.strip().lower() == "margin":
@@ -917,7 +993,7 @@ class GuidanceChangePlugin(EventPlugin):
 
             # level metric in SAME sentence
             local_hits = []
-            for k, v in METRIC_MAP.items():
+            for k, v in FIN_METRICS.items():
                 if v[2] != "ccy":
                     continue
                 if re.search(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", s, re.I):
@@ -981,7 +1057,7 @@ class GuidanceChangePlugin(EventPlugin):
 
             # level metric in SAME sentence
             local_hits = []
-            for k, v in METRIC_MAP.items():
+            for k, v in FIN_METRICS.items():
                 if v[2] != "ccy":
                     continue
                 if re.search(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", s, re.I):
@@ -1078,6 +1154,1161 @@ class GuidanceChangePlugin(EventPlugin):
             }
 
 
+        
+    # --- v2 wrapper: same gate/provenance as v1, modular extraction ---
+    def _detect_v2(self, doc):
+        """
+        Behavior-preserving refactor of _detect_v1:
+        - Keeps the exact gate/provenance logic from v1.
+        - Delegates numeric extraction to small helpers.
+        """
+        import re
+
+        text = f"{doc.get('title','')}\n{doc.get('body','')}"
+        head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
+
+        # ---------------- Strong trigger (regex-based) ----------------
+        trig = self._find_trigger(text)
+        if trig:
+            ss, se = trig["span"]
+            ctx_s = max(0, ss - 60); ctx_e = min(len(text), se + 60)
+            if NEGATION_RX.search(text[ctx_s:ctx_e]):
+                trig = None  # e.g., "no impairment" near trigger
+
+        # ---------------- Tokenization & sentences (once) ----------------
+        toks_spans = [(m.group(0), m.span()) for m in _TOKEN_RX.finditer(norm(text))]
+        toks = [t for t,_ in toks_spans]
+        sents = list(_sentences_with_spans(text))
+
+        def _sent_idx(span):
+            for k,(ss,se,_) in enumerate(sents):
+                if _span_in_sentence(span,(ss,se)): return k
+            return None
+
+        PERIOD_TOKENS = {"fy","full-year","h1","h2","q1","q2","q3","q4"}
+
+        def _has_number_near(toks, i, window=8):
+            lo, hi = max(0, i-window), min(len(toks), i+window+1)
+            seg = " ".join(toks[lo:hi])
+            return bool(PERCENT_RANGE.search(seg) or CCY_NUMBER.search(seg))
+
+        def _has_period_near(toks, i, window=8):
+            lo, hi = max(0, i-window), min(len(toks), i+window+1)
+            for t in toks[lo:hi]:
+                if t in PERIOD_TOKENS: return True
+                if len(t) == 4 and t.isdigit() and t.startswith(("20","19")): return True
+            return False
+
+        # ---------------- Proximity rules from YAML ----------------
+        prox_hit = None  # {"rule": rule_dict, "meta": proximity_meta}
+        best_d = 10**9
+
+        for r in self.prox_rules:
+            ok, meta = (False, None)
+
+            # Case A: verbs + metrics (e.g., raise/lower/reaffirm near guidance)
+            if r.get("verbs"):
+                ok, meta = proximity_cooccurs_morph_spans(
+                    text, set_a=r["verbs"], set_b=r["guidance_markers"],
+                    window=r["window_tokens"], min_stem=3,
+                    same_sentence=r.get("same_sentence", True)
+                )
+
+            # Case B: metric + unchanged markers (verb-less: "guidance unchanged")
+            elif r.get("unchanged_tokens"):
+                ok, meta = proximity_cooccurs_morph_spans(
+                    text, set_a=r["guidance_markers"], set_b=r["unchanged_tokens"],
+                    window=r["window_tokens"], min_stem=3,
+                    same_sentence=r.get("same_sentence", True)
+                )
+
+            if ok:
+                # Optional: enforce period token for "initiate" rules
+                if r.get("require_period_token"):
+                    m0, _ = meta["metric_span"]
+                    j = next((i for i, (_,sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
+                    if j is None or not _has_period_near(toks, j, window=r["window_tokens"]):
+                        continue
+
+                # Keep closest by token distance
+                if meta["token_dist"] < best_d:
+                    prox_hit = {"rule": r, "meta": meta}
+                    best_d = meta["token_dist"]
+
+        # Optional char proximity (same as v1)
+        char_ok = False
+        if prox_hit:
+            cs, ce = prox_hit["meta"]["cue_span"]; ms, me = prox_hit["meta"]["metric_span"]
+            cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
+            char_ok = abs(cue_c - met_c) <= self.prox_chars
+
+        # ---------------- Numeric gate for statement-only guidance ----------------
+        numeric_gate_ok = False
+        if not trig and not prox_hit and self.numeric_rules:
+            for r in self.numeric_rules:
+                for i, (tok, sp) in enumerate(toks_spans):
+                    if any(tok.startswith(m) for m in r["guidance_markers"]):
+                        if (not r["require_number"]) or _has_number_near(toks, i, window=r["window_tokens"]):
+                            numeric_gate_ok = True
+                            break
+                if numeric_gate_ok:
+                    break
+
+        # Legacy fwd-cue ↔ metric fallback (unchanged)
+        if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
+            ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
+                text, self.fwd_cue_terms, self.fin_metric_terms,
+                window=self.prox_tokens, min_stem=3
+            )
+            if ok_legacy and meta_legacy:
+                prox_hit = {
+                    "rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"},
+                    "meta": meta_legacy,
+                }
+                cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
+                cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
+                char_ok = abs(cue_c - met_c) <= self.prox_chars
+
+        # ---------------- Gate decision (unchanged) ----------------
+        if not trig:
+            mode = self.prox_mode
+            prox_ok = (prox_hit is not None) if mode=="token" else \
+                    (char_ok)              if mode=="char"  else \
+                    (prox_hit and char_ok) if mode=="both"  else \
+                    (prox_hit or char_ok)
+            if not (prox_ok or numeric_gate_ok):
+                return
+
+        # ---------------- Provenance + sentence suppressors (unchanged) ----------------
+        cue = None
+        cue_sent = None
+
+        if prox_hit:
+            cue = {
+                "label":   prox_hit["rule"]["name"],
+                "pattern": prox_hit["meta"]["cue_term"],
+                "match":   text[prox_hit["meta"]["cue_span"][0]:prox_hit["meta"]["cue_span"][1]],
+                "span":    prox_hit["meta"]["cue_span"],
+            }
+            cue_i = _sent_idx(prox_hit["meta"]["cue_span"])
+            met_i = _sent_idx(prox_hit["meta"]["metric_span"])
+            if cue_i is None or met_i is None:
+                return
+            if not self.allow_cross_sentence:
+                if cue_i != met_i:
+                    return
+                cue_sent = sents[cue_i]
+            else:
+                if not (-self.look_left_sentences <= (met_i-cue_i) <= self.look_right_sentences):
+                    return
+                cue_sent = sents[cue_i]
+
+            ss, se, sent = cue_sent
+            if self.rx_invite.search(sent) or self.rx_disclaimer_inl.search(sent):
+                return
+            blk = _find_block_range(text, self.rx_disclaimer_blk)
+            if blk and (ss >= blk[0]):
+                return
+            st = doc.get("source_type")
+            if self.rx_sup_macro.search(sent) and st not in {"issuer_pr","exchange","regulator"}:
+                if not COMPANY_PRONOUNS.search(sent):
+                    return
+            if self.rx_sup_analyst.search(sent) and st not in {"issuer_pr","exchange","regulator"}:
+                return
+            if re.search(r"\b(will|kommer\s+att)\b", sent, re.I):
+                if not (re.search(r"\b(guidance|outlook|forecast|target|aim|mål)\b", sent, re.I)
+                        or PERCENT_RANGE.search(sent) or CCY_NUMBER.search(sent)):
+                    return
+                
+            # cue_term = (prox_hit["meta"].get("cue_term") or "")
+            # _dprint("[guidance_v2 cue_term]", f"{cue_term=}")
+            # if self.rx_expect_family.search(cue_term):
+            #     emode = self._expected_mode(sent, cue_term=cue_term)
+            #     if emode == "past":
+            #         return  # suppress only if the *cue itself* is past-looking
+
+        # ---------------- Document context (unchanged) ----------------
+        period = _norm_period(text)
+        basis = _detect_basis(text) or "reported"
+
+        # ---------------- Metric hints & direction (unchanged) ----------------
+        hits = []
+        for k, v in FIN_METRICS.items():
+            k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
+            if k_rx.search(text):
+                hits.append((k, v))
+
+        direction_hint = None
+        if any_present_morph(text, self.dir_up_terms, min_stem=3):
+            direction_hint = "up"
+        elif any_present_morph(text, self.dir_dn_terms, min_stem=3):
+            direction_hint = "down"
+        else:
+            direction_hint = "up" if self.rx_dir_up.search(text) else ("down" if self.rx_dir_dn.search(text) else None)
+
+        if prox_hit and prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"}:
+            direction_hint = "flat"
+
+        prov = trig or cue
+        trigger_source = "strong" if trig else ("fwd_cue" if prox_hit else ("numeric_gate" if numeric_gate_ok else "none"))
+
+        # ---------------- Extraction (modular, behavior preserved) ----------------
+        yielded = False
+
+
+        allow_doc_fallback = bool(trig or prox_hit or numeric_gate_ok)
+
+                # High-level gate/config state
+        _dprint("[guidance_v2 gate]",
+                f"trig={bool(trig)}",
+                f"prox_hit={bool(prox_hit)}",
+                f"numeric_gate_ok={bool(numeric_gate_ok)}",
+                f"period_doc={period!r}",
+                f"allow_doc_fallback={allow_doc_fallback}",
+                f"prox_mode={self.prox_mode}",
+        )
+
+        # Show if YAML/config actually loaded
+        _dprint("[guidance_v2 cfg]",
+                f"fwd_cue_terms={len(self.fwd_cue_terms)}",
+                f"metric_terms={len(self.fin_metric_terms)}",
+                f"prox_rules={len(self.prox_rules)}",
+                f"numeric_rules={len(self.numeric_rules)}",
+                f"allow_cross_sentence={self.allow_cross_sentence}",
+                f"look_left={self.look_left_sentences}",
+                f"look_right={self.look_right_sentences}",
+        )
+
+
+                
+        # Trigger provenance
+        if trig:
+            _dprint("[guidance_v2 trigger]",
+                    f"label={trig['label']}",
+                    f"span={trig['span']}",
+                    f"match={trig['match']!r}")
+
+        # Proximity provenance
+        if prox_hit:
+            meta = prox_hit["meta"]
+            rule = prox_hit["rule"]
+            _dprint("[guidance_v2 prox]",
+                    f"rule={rule.get('name')}",
+                    f"type={rule.get('type')}",
+                    f"cue_term={meta.get('cue_term')!r}",
+                    f"cue_span={meta.get('cue_span')}",
+                    f"metric_span={meta.get('metric_span')}",
+                    f"token_dist={meta.get('token_dist')}",
+            )
+
+        # Quick regex visibility: how many numeric things we see in the whole text
+        _pcts = list(PERCENT_RANGE.finditer(text))
+        _rngs = list(CCY_RANGE.finditer(text))
+        _nums = list(CCY_NUMBER.finditer(text))
+        _dprint("[guidance_v2 regex_counts]",
+                f"pct={len(_pcts)}",
+                f"ccy_range={len(_rngs)}",
+                f"ccy_num={len(_nums)}")
+
+
+        # 1) Percent (growth/margins): ranges -> single values (skip covered)
+        pct_range_spans = []
+
+        for cand, span in self._extract_pct_range_candidates(
+            text=text, sents=sents, head=head, basis=basis, period_doc=period,
+            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
+            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
+        ):
+            yielded = True
+            pct_range_spans.append(span)
+            yield cand
+
+        for cand in self._extract_pct_number_candidates(
+            text=text, sents=sents, head=head, basis=basis,
+            period_doc=period, direction_hint=direction_hint,
+            prov=prov, trigger_source=trigger_source, doc=doc,
+            prox_hit=prox_hit, pct_range_spans=pct_range_spans,
+            allow_doc_fallback=allow_doc_fallback
+        ):
+            yielded = True
+            yield cand
+
+        # 2a) Currency ranges (levels) — track spans to avoid double counting
+        range_spans = []
+        for cand, span in self._extract_ccy_range_candidates(
+            text=text, sents=sents, head=head, basis=basis, period_doc=period,
+            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
+            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
+        ):
+            yielded = True
+            range_spans.append(span)
+            yield cand
+
+        # 2b) Currency single numbers (levels), skipping anything covered by a range
+        for cand in self._extract_ccy_number_candidates(
+            text=text, sents=sents, head=head, basis=basis, period_doc=period,
+            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
+            doc=doc, prox_hit=prox_hit, range_spans=range_spans, allow_doc_fallback=allow_doc_fallback
+        ):
+            yielded = True
+            yield cand
+
+        # ----------------------------------------------------------------------------------
+        # 3) TEXT-ONLY “unchanged guidance” stub — run regardless of numeric gate
+        # ----------------------------------------------------------------------------------
+        # 3) TEXT-ONLY “unchanged guidance” stub — run regardless of numeric gate
+        for cand in self._extract_unchanged_stub_candidates(
+            text=text,
+            sents=sents,
+            head=head,
+            period_doc=period,          # <-- use the computed period
+            prov=prov,
+            doc=doc,
+            basis=basis,
+            prox_hit=prox_hit,
+            trig=trig,
+            cue=cue,
+            trigger_source=trigger_source,
+            direction_hint=direction_hint,
+            hits=hits,
+        ):
+            yielded = True
+            yield cand
+
+
+
+
+        # # ---------------- Text-only stubs (unchanged) ----------------
+        # # A) Unchanged / Initiate with known period
+        # if (not yielded) and prox_hit and period != "UNKNOWN":
+        #     if prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm", "guidance_initiate"}:
+        #         yield {
+        #             "metric": "guidance",
+        #             "metric_kind": "text",
+        #             "unit": "text",
+        #             "currency": None,
+        #             "value_type": "na",
+        #             "value_low": None,
+        #             "value_high": None,
+        #             "basis": basis,
+        #             "period": period,
+        #             "direction_hint": ("flat" if prox_hit["rule"]["type"] in {"guidance_unchanged","guidance_reaffirm"} else None),
+        #             "_trigger_source":  "fwd_cue",
+        #             "_trigger_label":   cue["label"]   if cue else None,
+        #             "_trigger_pattern": cue["pattern"] if cue else None,
+        #             "_trigger_match":   cue["match"]   if cue else None,
+        #             "_trigger_span":    cue["span"]    if cue else None,
+        #             "_rule_type":       prox_hit["rule"]["type"],
+        #             "_rule_name":       prox_hit["rule"]["name"],
+        #         }
+        #         return
+
+        # # B) Tight text-only fallback
+        # if (not yielded
+        #     and hits
+        #     and period != "UNKNOWN"
+        #     and direction_hint is not None
+        #     and not self.rx_invite.search(head)):
+        #     if doc.get("source_type") not in {"issuer_pr","exchange","regulator"}:
+        #         ok_textonly = False
+        #         for _, _, s in sents:
+        #             if re.search(r"\b(guidance|outlook|forecast|prognos|utsikter)\b", s, re.I) and COMPANY_PRONOUNS.search(s):
+        #                 ok_textonly = True
+        #                 break
+        #         if not ok_textonly:
+        #             return
+        #     yield {
+        #         "metric": "guidance",
+        #         "metric_kind": "text",
+        #         "unit": "text",
+        #         "currency": None,
+        #         "value_type": "na",
+        #         "value_low": None,
+        #         "value_high": None,
+        #         "basis": basis,
+        #         "period": period,
+        #         "direction_hint": direction_hint,
+        #         "_trigger_source":  trigger_source,
+        #         "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
+        #         "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
+        #         "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
+        #         "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+        #         "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+        #         "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+        #     }
+
+
+    # ---------------- Helper extractors (behavior preserved) ----------------
+    def _extract_pct_range_candidates(
+    self, *, text, sents, head, basis, period_doc, direction_hint,
+    prov, trigger_source, doc, prox_hit, allow_doc_fallback
+    ):
+        """
+        Percent *ranges* only. Yields (candidate_dict, span) pairs.
+        No sentinels are emitted; the caller collects spans.
+        Supports both '12%–13%' and '12–13%'.
+        """
+        import re
+        from event_feed_app.utils.text import tokenize
+
+        # Prepositions linking number <-> metric on the right
+        PREP_RX = re.compile(r"\b(of|in|for|i|för|på|av)\b", re.I)
+
+        # Generic compound for margin family, e.g. 'rörelsemarginalen', 'operatingmarginal'
+        MARGIN_COMPOUND_RX = re.compile(r"\b(\w+?)marg(?:in|inal)\w*\b", re.I)
+
+        # Trailing-unit form: '12–13%' (vs. global PERCENT_RANGE that matches '12%–13%')
+        PERCENT_TRAILING_RANGE = re.compile(r"""
+            (?P<a>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
+            (?:-|–|to)\s?
+            (?P<b>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
+            (?P<unit>%|percent|procent)
+        """, re.I | re.X)
+
+        # Build a qualifier->metric map for margin family once
+        if not hasattr(self, "_margin_qual_map"):
+            qual_map = {}
+            opm = None
+            for _k, v in FIN_METRICS.items():
+                metric_name, kind, unit = v
+                if unit == "pct" and kind == "margin":
+                    if metric_name == "operating_margin":
+                        opm = v
+                    q = metric_name.replace("_margin", "").replace("margin", "").strip("_ ").lower()
+                    if q:
+                        qual_map[q] = v
+            self._margin_qual_map = qual_map
+            self._operating_margin_v = opm
+
+        def _choose_metric_for_number(n0, n1, sent_text, metric_spans_local,
+                                    token_window=8, char_window=140):
+            """Pick best metric near [n0,n1) within this sentence."""
+            if not metric_spans_local:
+                return None, None, None
+
+            # Partition by side of the number/range
+            left  = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if b <= n0]
+            right = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if a >= n1]
+
+            def _tokdist(sub: str) -> int:
+                return len(tokenize(sub))
+
+            # Prefer nearest LEFT within tight windows
+            if left:
+                a,b,v,k = min(left, key=lambda t: n0 - t[1])
+                gap_char = n0 - b
+                gap_tok  = _tokdist(sent_text[b:n0])
+                if gap_char <= char_window and gap_tok <= token_window:
+                    return v, k, gap_char
+
+            # RIGHT if linked by a preposition or very close
+            if right:
+                a,b,v,k = min(right, key=lambda t: t[0] - n1)
+                between = sent_text[n1:a]
+                gap_char = a - n1
+                gap_tok  = _tokdist(between)
+                if PREP_RX.search(between) or gap_tok <= token_window or gap_char <= char_window:
+                    return v, k, gap_char
+
+            # Fallback: global nearest by char distance
+            best = None
+            best_d = None
+            for a,b,v,k in metric_spans_local:
+                d = min(abs(n0 - a), abs(n1 - b))
+                if best_d is None or d < best_d:
+                    best, best_d = (v, k), d
+            v, k = best
+            return v, k, best_d
+
+        # Collect both range styles from the full text
+        matches: list[re.Match] = []
+
+        # Global PERCENT_RANGE (already imported at module level) matches '12%–13%'
+        for m in PERCENT_RANGE.finditer(text):
+            # Only true ranges here; singles go to _extract_pct_number_candidates
+            if m.group("b"):
+                matches.append(m)
+
+        # Trailing-unit style: '12–13%'
+        matches.extend(PERCENT_TRAILING_RANGE.finditer(text))
+
+        for m in matches:
+            ms, me = m.span()
+            # Find the sentence containing this span
+            sent = next(((ss, se, s) for ss, se, s in sents if _span_in_sentence((ms, me), (ss, se))), None)
+            if not sent:
+                _dprint("[pct] skip:no_sentence_for_span", f"span=({ms},{me})")
+                continue
+            ss, se, s = sent
+            _dprint("[pct] hit", f"span=({ms},{me})", f"sent={s!r}")
+
+            # # Historical “expected … was …” and general past-tense suppression
+            # emode = self._expected_mode(s)
+            # if emode == "past":
+            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
+            #     continue
+                
+            # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
+            # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
+            # if re.search(r"\b(was|were)\b", s, re.I) and not self.rx_fwd_cues.search(s):
+            #     _dprint("[hist] skip: past-tense without forward cue")
+            #     continue
+
+            # Suppressors
+            st = doc.get("source_type")
+            if (self.rx_sup_ma.search(s)
+                or self.rx_sup_debt.search(s)
+                or (self.rx_sup_analyst.search(s) and st not in {"issuer_pr","exchange","regulator"})):
+                _dprint("[pct] skip:suppressor", f"source_type={st}")
+                continue
+
+            # Collect % metrics present in this sentence
+            metric_spans_local = []
+            for k, v in FIN_METRICS.items():
+                if v[2] != "pct":
+                    continue
+                pat = re.escape(k).replace(r"\ ", r"[\s-]+")
+                k_rx = re.compile(r"\b" + pat + r"\b", re.I)
+                for mm in k_rx.finditer(s):
+                    # Bare "margin" must have a valid qualifier nearby to avoid generic matches
+                    if k.strip().lower() == "margin":
+                        left = s[max(0, mm.start()-40):mm.start()]
+                        if not any(re.search(rf"\b{re.escape(p)}\w*\b", left, re.I)
+                                for p in getattr(self, "margin_prefixes",
+                                                    ("operating","gross","net","ebit","ebitda","adj","adjusted"))):
+                            continue
+                    metric_spans_local.append((mm.start(), mm.end(), v, k))
+
+            # Also accept compound '<qualifier>marg(in|inal)' as a margin family mention
+            for mm in MARGIN_COMPOUND_RX.finditer(s):
+                qual = mm.group(1).lower()
+                v = self._margin_qual_map.get(qual, self._operating_margin_v)  # default to operating margin
+                if v:
+                    metric_spans_local.append((mm.start(), mm.end(), v, f"{qual}margin"))
+
+            if not metric_spans_local:
+                _dprint("[pct] skip:no_metric_in_sentence")
+                continue
+
+            # Choose best metric span relative to the number/range within this sentence
+            n0, n1 = ms - ss, me - ss
+            best_v, best_k, best_d = _choose_metric_for_number(n0, n1, s, metric_spans_local)
+            if not best_v:
+                _dprint("[pct] skip:no_metric_link_for_number")
+                continue
+
+            # Determine period (allow doc-level fallback if gate passed)
+            period_local = _norm_period_sentence(s)
+            if period_local == "UNKNOWN":
+                if period_doc != "UNKNOWN" and allow_doc_fallback:
+                    _dprint("[pct] using doc-level period fallback", f"period_doc={period_doc}")
+                    period_local = period_doc
+                else:
+                    _dprint("[pct] skip:period_unknown_no_fallback")
+                    continue
+
+            # Parse numeric values (both regexes expose a/b)
+            try:
+                a = _to_float(m.group("a"))
+                b = _to_float(m.group("b"))
+            except Exception as e:
+                _dprint("[pct] skip:parse_error", f"err={e}")
+                continue
+
+            low, high = (min(a, b), max(a, b))
+
+            metric, kind, unit = best_v
+            _dprint("[pct] yield", f"metric={metric}", f"kind={kind}", "unit=pct",
+                    f"low={low}", f"high={high}", f"period={period_local}",
+                    f"d={best_d}", f"nearest_key={best_k}")
+
+            yield {
+                "metric": metric, "metric_kind": kind, "unit": "pct", "currency": None,
+                "value_type": "range", "value_low": low, "value_high": high,
+                "basis": basis, "period": period_local,
+                "direction_hint": direction_hint,
+                "_trigger_source": trigger_source,
+                "_trigger_label":   prov["label"]   if prov else None,
+                "_trigger_pattern": prov["pattern"] if prov else None,
+                "_trigger_match":   prov["match"]   if prov else None,
+                "_trigger_span":    prov["span"]    if prov else None,
+                "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+                "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+            }, (ms, me)
+
+
+    def _extract_pct_number_candidates(
+        self, *, text, sents, head, basis, period_doc, direction_hint,
+        prov, trigger_source, doc, prox_hit, pct_range_spans, allow_doc_fallback
+    ):
+        import re
+        from event_feed_app.utils.text import tokenize
+
+        PREP_RX = re.compile(r"\b(of|in|for|i|för|på|av)\b", re.I)
+        MARGIN_COMPOUND_RX = re.compile(r"\b(\w+?)marg(?:in|inal)\w*\b", re.I)
+
+        # single-%; allow approx / approx. / approximately / about / around / circa / c. / ca.
+        PCT_NUM_SINGLE = re.compile(
+            r"(?:(?P<approx>about|around|approximately|approx\.?|circa|c\.|ca\.?|~)\s*)?"
+            r"(?P<a>\d{1,3}(?:[.,]\d+)?)\s*%",
+            re.I
+        )
+
+        if not hasattr(self, "_margin_qual_map"):
+            # ensure the map exists if this function runs first
+            qual_map = {}
+            opm = None
+            for _k, v in FIN_METRICS.items():
+                metric_name, kind, unit = v
+                if unit == "pct" and kind == "margin":
+                    if metric_name == "operating_margin":
+                        opm = v
+                    q = metric_name.replace("_margin", "").replace("margin", "").strip("_ ").lower()
+                    if q:
+                        qual_map[q] = v
+            self._margin_qual_map = qual_map
+            self._operating_margin_v = opm
+
+        def _covered(span):
+            s, e = span
+            for rs, re_ in pct_range_spans:
+                if s >= rs and e <= re_:
+                    return True
+            return False
+
+        def _choose_metric_for_number(n0, n1, sent_text, metric_spans_local,
+                                    token_window=8, char_window=140):
+            if not metric_spans_local:
+                return None, None, None
+            left  = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if b <= n0]
+            right = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if a >= n1]
+
+            def _tokdist(sub: str) -> int:
+                return len(tokenize(sub))
+
+            if left:
+                a,b,v,k = min(left, key=lambda t: n0 - t[1])
+                gap_char = n0 - b
+                gap_tok  = _tokdist(sent_text[b:n0])
+                if gap_char <= char_window and gap_tok <= token_window:
+                    return v, k, gap_char
+
+            if right:
+                a,b,v,k = min(right, key=lambda t: t[0] - n1)
+                between = sent_text[n1:a]
+                gap_char = a - n1
+                gap_tok  = _tokdist(between)
+                if PREP_RX.search(between) or gap_tok <= token_window or gap_char <= char_window:
+                    return v, k, gap_char
+
+            best = None
+            best_d = None
+            for a,b,v,k in metric_spans_local:
+                d = min(abs(n0 - a), abs(n1 - b))
+                if best_d is None or d < best_d:
+                    best, best_d = (v, k), d
+            v, k = best
+            return v, k, best_d
+
+        for m in PCT_NUM_SINGLE.finditer(text):
+            ms, me = m.span()
+            if _covered((ms, me)):
+                _dprint("[pct] skip:covered_by_range", f"span=({ms},{me})")
+                continue
+
+            sent = next(((ss, se, s) for ss, se, s in sents if _span_in_sentence((ms, me), (ss, se))), None)
+            if not sent:
+                _dprint("[pct] skip:no_sentence_for_span", f"span=({ms},{me})")
+                continue
+            ss, se, s = sent
+            _dprint("[pct] hit_single", f"span=({ms},{me})", f"sent={s!r}")
+
+
+            #  # Historical “expected … was …” and general past-tense suppression
+            # emode = self._expected_mode(s)
+            # if emode == "past":
+            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
+            #     continue
+                
+            # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
+            # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
+            # if re.search(r"\b(was|were)\b", s, re.I) and not self.rx_fwd_cues.search(s):
+            #     _dprint("[hist] skip: past-tense without forward cue")
+            #     continue
+
+            st = doc.get("source_type")
+            if (self.rx_sup_ma.search(s)
+                or self.rx_sup_debt.search(s)
+                or (self.rx_sup_analyst.search(s) and st not in {"issuer_pr","exchange","regulator"})):
+                _dprint("[pct] skip:suppressor", f"source_type={st}")
+                continue
+
+            # collect % metrics in-sentence (generic)
+            metric_spans_local = []
+            for k, v in FIN_METRICS.items():
+                if v[2] != "pct":
+                    continue
+                pat = re.escape(k).replace(r"\ ", r"[\s-]+")
+                k_rx = re.compile(r"\b" + pat + r"\b", re.I)
+                for mm in k_rx.finditer(s):
+                    if k.strip().lower() == "margin":
+                        left = s[max(0, mm.start()-40):mm.start()]
+                        if not any(re.search(rf"\b{re.escape(p)}\w*\b", left, re.I)
+                                for p in getattr(self, "margin_prefixes",
+                                                    ("operating","gross","net","ebit","ebitda","adj","adjusted"))):
+                            continue
+                    metric_spans_local.append((mm.start(), mm.end(), v, k))
+
+            # compound margin family
+            for mm in MARGIN_COMPOUND_RX.finditer(s):
+                qual = mm.group(1).lower()
+                v = self._margin_qual_map.get(qual, self._operating_margin_v)
+                if v:
+                    metric_spans_local.append((mm.start(), mm.end(), v, f"{qual}margin"))
+
+            if not metric_spans_local:
+                _dprint("[pct] skip:no_metric_in_sentence")
+                continue
+
+            n0, n1 = ms - ss, me - ss
+            best_v, best_k, best_d = _choose_metric_for_number(n0, n1, s, metric_spans_local)
+            if not best_v:
+                _dprint("[pct] skip:no_metric_link_for_number")
+                continue
+
+            period_local = _norm_period_sentence(s)
+            if period_local == "UNKNOWN":
+                if period_doc != "UNKNOWN" and allow_doc_fallback:
+                    _dprint("[pct] using doc-level period fallback", f"period_doc={period_doc}")
+                    period_local = period_doc
+                else:
+                    _dprint("[pct] skip:period_unknown_no_fallback")
+                    continue
+
+            a = _to_float(m.group("a"))
+            approx = bool((m.groupdict() or {}).get("approx"))
+            metric, kind, unit = best_v
+
+            if approx:
+                band = float(self.thresholds.get(
+                    "approx_band_pp_margin" if kind == "margin" else "approx_band_pp_growth",
+                    0.5 if kind == "margin" else 1.0
+                ))
+                low, high = a - band, a + band
+                vtype = "range"
+            else:
+                low = high = a
+                vtype = "point"
+
+            _dprint("[pct] yield_single", f"metric={metric}", f"kind={kind}", "unit=pct",
+                    f"low={low}", f"high={high}", f"period={period_local}", f"d={best_d}", f"nearest_key={best_k}")
+            yield {
+                "metric": metric, "metric_kind": kind, "unit": "pct", "currency": None,
+                "value_type": vtype, "value_low": low, "value_high": high,
+                "basis": basis, "period": period_local,
+                "direction_hint": direction_hint,
+                "_trigger_source": trigger_source,
+                "_trigger_label":   prov["label"]   if prov else None,
+                "_trigger_pattern": prov["pattern"] if prov else None,
+                "_trigger_match":   prov["match"]   if prov else None,
+                "_trigger_span":    prov["span"]    if prov else None,
+                "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+                "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+            }
+
+
+
+    def _extract_ccy_range_candidates(
+    self, *, text, sents, head, basis, period_doc, direction_hint,
+    prov, trigger_source, doc, prox_hit, allow_doc_fallback
+):
+        import re
+        from event_feed_app.utils.text import tokenize
+
+        PREP_RX = re.compile(r"\b(of|in|for|i|för|på|av)\b", re.I)
+
+        # choose the best metric span for a number/range inside *this sentence*
+        def _choose_metric_for_number(n0: int, n1: int, sent_text: str,
+                                    metric_spans_local: list[tuple[int,int,tuple,str]],
+                                    token_window: int = 8, char_window: int = 140):
+            if not metric_spans_local:
+                return None, None, None  # (metric_tuple, key, dist)
+
+            # partition by side
+            left  = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if b <= n0]
+            right = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if a >= n1]
+
+            def _tokdist(sub: str) -> int:
+                return len(tokenize(sub))
+
+            # 1) prefer nearest LEFT within small windows
+            if left:
+                a,b,v,k = min(left, key=lambda t: n0 - t[1])  # smallest gap left
+                gap_char = n0 - b
+                gap_tok  = _tokdist(sent_text[b:n0])
+                if gap_char <= char_window and gap_tok <= token_window:
+                    return v, k, gap_char
+
+            # 2) RIGHT if linked by preposition or very close
+            if right:
+                a,b,v,k = min(right, key=lambda t: t[0] - n1)
+                between = sent_text[n1:a]
+                gap_char = a - n1
+                gap_tok  = _tokdist(between)
+                if PREP_RX.search(between) or gap_tok <= token_window or gap_char <= char_window:
+                    return v, k, gap_char
+
+            # 3) fallback: global nearest by char distance
+            best = None
+            best_d = None
+            for a,b,v,k in metric_spans_local:
+                d = min(abs(n0 - a), abs(n1 - b))
+                if best_d is None or d < best_d:
+                    best, best_d = (v, k), d
+            (v, k) = best
+            return v, k, best_d
+
+        for m in CCY_RANGE.finditer(text):
+            ms, me = m.span()
+            sent = next(((ss, se, s) for ss, se, s in sents if _span_in_sentence((ms, me), (ss, se))), None)
+            if not sent:
+                _dprint("[rng] skip:no_sentence_for_span", f"span=({ms},{me})")
+                continue
+            ss, se, s = sent
+            _dprint("[rng] hit", f"span=({ms},{me})", f"sent={s!r}")
+
+
+            #  # Historical “expected … was …” and general past-tense suppression
+            # emode = self._expected_mode(s)
+            # if emode == "past":
+            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
+            #     continue
+                
+            # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
+            # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
+            # if re.search(r"\b(was|were)\b", s, re.I) and not self.rx_fwd_cues.search(s):
+            #     _dprint("[hist] skip: past-tense without forward cue")
+            #     continue
+
+            st = doc.get("source_type")
+            # extra safeguard for non-issuer: require company pronoun in the sentence
+            if st not in {"issuer_pr","exchange","regulator"} and not COMPANY_PRONOUNS.search(s):
+                _dprint("[rng] skip:no_company_pronoun_non_issuer", f"source_type={st}")
+                continue
+            if (self.rx_sup_ma.search(s)
+                or self.rx_sup_debt.search(s)
+                or (self.rx_sup_analyst.search(s) and st not in {"issuer_pr","exchange","regulator"})):
+                _dprint("[rng] skip:suppressor", f"source_type={st}")
+                continue
+
+            # collect ALL ccy metrics in this sentence (local spans)
+            metric_spans_local = []  # (start_local, end_local, (metric, kind, unit), key)
+            for k, v in FIN_METRICS.items():
+                if v[2] != "ccy":
+                    continue
+                # allow hyphen/space variants; allow Swedish definite/inflected forms
+                pat = re.escape(k).replace(r"\ ", r"[\s-]+")
+                if re.search(r"[åäö]", k, re.I) or k.lower() in {"omsättning","försäljning"}:
+                    pat = pat + r"\w*"  # e.g., 'omsättningen', 'försäljningen'
+                k_rx = re.compile(r"\b" + pat + r"\b", re.I)
+                for mm in k_rx.finditer(s):
+                    metric_spans_local.append((mm.start(), mm.end(), v, k))
+
+            if not metric_spans_local:
+                _dprint("[rng] skip:no_metric_in_sentence")
+                continue
+
+            # choose best metric near the number/range
+            n0, n1 = ms - ss, me - ss
+            best_v, best_k, best_d = _choose_metric_for_number(n0, n1, s, metric_spans_local)
+
+            if not best_v:
+                _dprint("[rng] skip:no_metric_link_for_number")
+                continue
+
+            period_local = _norm_period_sentence(s)
+            if period_local == "UNKNOWN":
+                if period_doc != "UNKNOWN" and allow_doc_fallback:
+                    _dprint("[rng] using doc-level period fallback", f"period_doc={period_doc}")
+                    period_local = period_doc
+                else:
+                    _dprint("[rng] skip:period_unknown_no_fallback")
+                    continue
+
+            ccy   = m.group("ccy").upper()
+            scale = (m.groupdict() or {}).get("scale")
+            a = _apply_scale(_to_float(m.group("a")), scale)
+            b = _apply_scale(_to_float(m.group("b")), scale)
+            low, high = (min(a, b), max(a, b))
+
+            metric, kind, unit = best_v
+            _dprint("[rng] yield", f"metric={metric}", f"low={low}", f"high={high}",
+                    f"ccy={ccy}", f"period={period_local}", f"d={best_d}", f"nearest_key={best_k}")
+            yield ({
+                "metric": metric, "metric_kind": kind, "unit": "ccy", "currency": ccy,
+                "value_type": "range", "value_low": low, "value_high": high,
+                "basis": basis, "period": period_local,
+                "direction_hint": direction_hint,
+                "_trigger_source": trigger_source,
+                "_trigger_label":   prov["label"]   if prov else None,
+                "_trigger_pattern": prov["pattern"] if prov else None,
+                "_trigger_match":   prov["match"]   if prov else None,
+                "_trigger_span":    prov["span"]    if prov else None,
+                "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+                "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+            }, (ms, me))
+
+
+
+    def _extract_ccy_number_candidates(
+    self, *, text, sents, head, basis, period_doc, direction_hint,
+    prov, trigger_source, doc, prox_hit, range_spans, allow_doc_fallback
+):
+        import re
+        from event_feed_app.utils.text import tokenize
+
+        PREP_RX = re.compile(r"\b(of|in|for|i|för|på|av)\b", re.I)
+
+        def _in_any_range_span(span):
+            s, e = span
+            for rs, re_ in range_spans:
+                if s >= rs and e <= re_:
+                    return True
+            return False
+
+        def _choose_metric_for_number(n0: int, n1: int, sent_text: str,
+                                    metric_spans_local: list[tuple[int,int,tuple,str]],
+                                    token_window: int = 8, char_window: int = 140):
+            if not metric_spans_local:
+                return None, None, None
+
+            left  = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if b <= n0]
+            right = [(a,b,v,k) for (a,b,v,k) in metric_spans_local if a >= n1]
+
+            def _tokdist(sub: str) -> int:
+                return len(tokenize(sub))
+
+            if left:
+                a,b,v,k = min(left, key=lambda t: n0 - t[1])
+                gap_char = n0 - b
+                gap_tok  = _tokdist(sent_text[b:n0])
+                if gap_char <= char_window and gap_tok <= token_window:
+                    return v, k, gap_char
+
+            if right:
+                a,b,v,k = min(right, key=lambda t: t[0] - n1)
+                between = sent_text[n1:a]
+                gap_char = a - n1
+                gap_tok  = _tokdist(between)
+                if PREP_RX.search(between) or gap_tok <= token_window or gap_char <= char_window:
+                    return v, k, gap_char
+
+            best = None
+            best_d = None
+            for a,b,v,k in metric_spans_local:
+                d = min(abs(n0 - a), abs(n1 - b))
+                if best_d is None or d < best_d:
+                    best, best_d = (v, k), d
+            (v, k) = best
+            return v, k, best_d
+
+        for m in CCY_NUMBER.finditer(text):
+            ms, me = m.span()
+            if _in_any_range_span((ms, me)):
+                _dprint("[num] skip:covered_by_range", f"span=({ms},{me})")
+                continue
+
+            sent = next(((ss, se, s) for ss, se, s in sents if _span_in_sentence((ms, me), (ss, se))), None)
+            if not sent:
+                _dprint("[num] skip:no_sentence_for_span", f"span=({ms},{me})")
+                continue
+            ss, se, s = sent
+            _dprint("[num] hit", f"span=({ms},{me})", f"sent={s!r}")
+
+
+            #  # Historical “expected … was …” and general past-tense suppression
+            # emode = self._expected_mode(s)
+            # if emode == "past":
+            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
+            #     continue
+                
+            # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
+            # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
+            # if re.search(r"\b(was|were)\b", s, re.I) and not self.rx_fwd_cues.search(s):
+            #     _dprint("[hist] skip: past-tense without forward cue")
+            #     continue
+
+            st = doc.get("source_type")
+            # extra safeguard for non-issuer: require company pronoun in the sentence
+            if st not in {"issuer_pr","exchange","regulator"} and not COMPANY_PRONOUNS.search(s):
+                _dprint("[num] skip:no_company_pronoun_non_issuer", f"source_type={st}")
+                continue
+            if (self.rx_sup_ma.search(s)
+                or self.rx_sup_debt.search(s)
+                or (self.rx_sup_analyst.search(s) and st not in {"issuer_pr","exchange","regulator"})):
+                _dprint("[num] skip:suppressor", f"source_type={st}")
+                continue
+
+            # collect ALL ccy metrics in this sentence (local spans)
+            metric_spans_local = []
+            for k, v in FIN_METRICS.items():
+                if v[2] != "ccy":
+                    continue
+                pat = re.escape(k).replace(r"\ ", r"[\s-]+")
+                if re.search(r"[åäö]", k, re.I) or k.lower() in {"omsättning","försäljning"}:
+                    pat = pat + r"\w*"
+                k_rx = re.compile(r"\b" + pat + r"\b", re.I)
+                for mm in k_rx.finditer(s):
+                    metric_spans_local.append((mm.start(), mm.end(), v, k))
+
+            if not metric_spans_local:
+                _dprint("[num] skip:no_metric_in_sentence")
+                continue
+
+            # choose best metric near the number
+            n0, n1 = ms - ss, me - ss
+            best_v, best_k, best_d = _choose_metric_for_number(n0, n1, s, metric_spans_local)
+            if not best_v:
+                _dprint("[num] skip:no_metric_link_for_number")
+                continue
+
+            period_local = _norm_period_sentence(s)
+            if period_local == "UNKNOWN":
+                if period_doc != "UNKNOWN" and allow_doc_fallback:
+                    _dprint("[num] using doc-level period fallback", f"period_doc={period_doc}")
+                    period_local = period_doc
+                else:
+                    _dprint("[num] skip:period_unknown_no_fallback")
+                    continue
+
+            ccy = m.group("ccy").upper()
+            scale = (m.groupdict() or {}).get("scale")
+            val = _apply_scale(_to_float(m.group("num")), scale)
+
+            metric, kind, unit = best_v
+            _dprint("[num] yield", f"metric={metric}", f"val={val}", f"ccy={ccy}",
+                    f"period={period_local}", f"d={best_d}", f"nearest_key={best_k}")
+            yield {
+                "metric": metric, "metric_kind": kind, "unit": "ccy", "currency": ccy,
+                "value_type": "point", "value_low": val, "value_high": val,
+                "basis": basis, "period": period_local,
+                "direction_hint": direction_hint,
+                "_trigger_source": trigger_source,
+                "_trigger_label":   prov["label"]   if prov else None,
+                "_trigger_pattern": prov["pattern"] if prov else None,
+                "_trigger_match":   prov["match"]   if prov else None,
+                "_trigger_span":    prov["span"]    if prov else None,
+                "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+                "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+            }
+
+
+    def _extract_unchanged_stub_candidates(
+    self,
+    *,
+    text: str,
+    sents,
+    head: str,
+    period_doc: str,
+    prov: dict | None,
+    doc: dict,
+    basis: str | None = None,
+    prox_hit: dict | None = None,
+    trig: dict | None = None,
+    cue: dict | None = None,
+    trigger_source: str | None = None,
+    direction_hint: str | None = None,
+    hits: list | None = None,
+    ):
+        """
+        Emit a single text-only 'guidance' stub when either:
+        A) We have a prox rule indicating unchanged/reaffirm/initiate and a known period.
+        B) Tight text-only fallback (old v1 behavior) with direction, known period, and headline not an invite.
+
+        Suppress on wires/non-issuer sources unless a company pronoun is present in the relevant sentence.
+        """
+        import re
+
+        if period_doc == "UNKNOWN":
+            return  # never emit stubs without a concrete period
+
+        st = doc.get("source_type")
+
+        # ---------- A) Prox-based unchanged/reaffirm/initiate ----------
+        if prox_hit and prox_hit.get("rule", {}).get("type") in {
+            "guidance_unchanged", "guidance_reaffirm", "guidance_initiate"
+        }:
+            # For non-issuer sources, require a company pronoun in the cue sentence.
+            if st not in {"issuer_pr", "exchange", "regulator"}:
+                sent_txt = None
+                cue_span = prox_hit.get("meta", {}).get("cue_span")
+                if cue_span:
+                    for ss, se, s in sents:
+                        if ss <= cue_span[0] < se:
+                            sent_txt = s
+                            break
+                if not (sent_txt and COMPANY_PRONOUNS.search(sent_txt)):
+                    return
+
+            yield {
+                "metric": "guidance",
+                "metric_kind": "text",
+                "unit": "text",
+                "currency": None,
+                "value_type": "na",
+                "value_low": None,
+                "value_high": None,
+                "basis": basis or "reported",
+                "period": period_doc,
+                "direction_hint": (
+                    "flat" if prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"} else None
+                ),
+                "_trigger_source": trigger_source or ("fwd_cue" if prox_hit else "none"),
+                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
+                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
+                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
+                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_rule_type":       prox_hit["rule"]["type"],
+                "_rule_name":       prox_hit["rule"]["name"],
+            }
+            return  # only one stub
+
+        # ---------- B) Tight text-only fallback (directional text w/o numbers) ----------
+        # Mirrors your old v1 "B) Tight text-only fallback" block.
+        if (
+            hits
+            and direction_hint is not None
+            and not self.rx_invite.search(head)
+        ):
+            if st not in {"issuer_pr", "exchange", "regulator"}:
+                ok_textonly = False
+                for _, _, s in sents:
+                    if re.search(r"\b(guidance|outlook|forecast|prognos|utsikter)\b", s, re.I) and COMPANY_PRONOUNS.search(s):
+                        ok_textonly = True
+                        break
+                if not ok_textonly:
+                    return
+
+            yield {
+                "metric": "guidance",
+                "metric_kind": "text",
+                "unit": "text",
+                "currency": None,
+                "value_type": "na",
+                "value_low": None,
+                "value_high": None,
+                "basis": basis or "reported",
+                "period": period_doc,
+                "direction_hint": direction_hint,
+                "_trigger_source": trigger_source or ("strong" if trig else ("fwd_cue" if cue else "none")),
+                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
+                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
+                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
+                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
+                "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
+            }
+            return
 
     def _find_trigger(self, text: str) -> Optional[dict]:
         """Return first trigger match with provenance info, else None."""
@@ -1110,6 +2341,41 @@ class GuidanceChangePlugin(EventPlugin):
             "match": text[s:e],
             "excerpt": text[ctx_s:ctx_e],
         }
+
+    # def _expected_mode(self, sent: str) -> str | None:
+    #     s = sent.lower()
+    #     # If no "expect" family token at all, do nothing
+    #     if not self.rx_expect_family.search(s):
+    #         return None
+    #     # If any past marker appears → treat as past (suppress)
+    #     if any(tok in s for tok in self.expected_past_terms):
+    #         return "past"
+    #     # If any forward marker appears → allow as future
+    #     if any(tok in s for tok in self.expected_forward_terms):
+    #         return "future"
+    #     # Ambiguous "expected" → conservative: suppress
+    #     return "past"
+
+    def _expected_mode(self, sent: str, cue_term: str | None = None) -> str | None:
+        s = sent.lower()
+        # Only evaluate if the cue is an expect-family token; otherwise do nothing
+        if cue_term is not None and not self.rx_expect_family.search(cue_term):
+            return None
+
+        # If no expect* at all in the sentence, do nothing
+        if not self.rx_expect_family.search(s):
+            return None
+
+        has_past = bool(self.rx_expected_past.search(s))
+        has_fwd  = bool(self.rx_expected_forward.search(s))
+
+        if has_fwd and not has_past:
+            return "future"
+        if has_past and not has_fwd:
+            return "past"
+        # Mixed or ambiguous → don't suppress
+        return None
+
 
     # ------ 3) Normalize & enrich ------
     def normalize(self, cand: dict) -> dict:
