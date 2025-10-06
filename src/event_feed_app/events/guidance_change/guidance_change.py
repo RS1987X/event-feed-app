@@ -599,7 +599,7 @@ def run_guidance_change_job(
         title = doc.get("title_clean", "")
         body = doc.get("body_clean", "")
 
-        for raw in plugin._detect_v2(doc):
+        for raw in plugin.detect(doc):
             cand = plugin.normalize({
                 **raw,
                 "company_id": doc["company_id"],

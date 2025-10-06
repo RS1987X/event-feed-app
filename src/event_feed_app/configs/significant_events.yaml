@@ -42,7 +42,7 @@ events:
 
       fwd_cue:
         terms:
-          en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect"]
+          en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect","guiding"]
           sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
 
       guidance_proximity_rules:
@@ -87,6 +87,20 @@ events:
           window_tokens: 8
           same_sentence: true
           require_number: true
+      
+      # NEW: minimal markers-only rules that should emit a text stub
+      guidance_text_stub_rules:
+        - name: en_guidance_interval_stub
+          type: guidance_text_stub
+          lang: en
+          markers:
+            - "guidance interval"
+            - "guidance range"
+            - "targeted guidance interval"
+            - "within the guidance interval"
+            - "within the guidance range"
+          same_sentence: true
+          require_period_token: true
 
       dir_up:
         any:
@@ -97,7 +111,8 @@ events:
 
       invite:
         any:
-          - '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder)\b'
+          #- '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder)\b'
+          - '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder|capital\s+markets\s+day|cmd)\b'
 
       disclaimer_block:
         any:

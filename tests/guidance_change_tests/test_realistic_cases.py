@@ -36,15 +36,15 @@ import pytest
 #         False,  # should yield a text-only unchanged stub
 #     ),
 # ])
-@pytest.fixture(autouse=True)
-def force_detect_v2(plugin):
-    # whichever knob your plugin exposes:
-    if hasattr(plugin, "detect_version"):
-        plugin.detect_version = "v2"
-    else:
-        setattr(plugin, "_use_v2", True)
-    yield
-import pytest
+# @pytest.fixture(autouse=True)
+# def force_detect_v2(plugin):
+#     # whichever knob your plugin exposes:
+#     if hasattr(plugin, "detect_version"):
+#         plugin.detect_version = "v2"
+#     else:
+#         setattr(plugin, "_use_v2", True)
+#     yield
+# import pytest
 
 # =============== POSITIVES: CORE DETECTION ===============
 
