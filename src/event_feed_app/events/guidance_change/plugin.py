@@ -112,6 +112,7 @@ def _compile_trigger_list(patterns_cfg: Dict[str, Any]) -> List[tuple[str, re.Pa
         pats = [(f"default[{i}]", re.compile(p, re.I)) for i, p in enumerate(defaults)]
     return pats
 
+
 def _is_num(x):
     try:
         return x is not None and math.isfinite(float(x))
@@ -1956,6 +1957,8 @@ class GuidanceChangePlugin(EventPlugin):
         allow_doc_fallback = bool(trig or prox_hit or numeric_gate_ok or text_gate_ok)
 
         # ---------- 11) Extraction (delegated to existing helpers) ----------
+        
+
         yielded = False
 
         pct_range_spans = []
@@ -1964,6 +1967,11 @@ class GuidanceChangePlugin(EventPlugin):
             direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
             doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
         ):
+            # si = _sent_idx(span)
+            # sent_txt = sents[si][2] if si is not None else ""
+            # if self._is_expected_past(sent_txt):
+            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
+            #     continue
             yielded = True
             pct_range_spans.append(span)
             yield cand
@@ -1974,6 +1982,11 @@ class GuidanceChangePlugin(EventPlugin):
             doc=doc, prox_hit=prox_hit, pct_range_spans=pct_range_spans,
             allow_doc_fallback=allow_doc_fallback
         ):
+            # si = _sent_idx(span)
+            # sent_txt = sents[si][2] if si is not None else ""
+            # if self._is_expected_past(sent_txt):
+            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
+            #     continue
             yielded = True
             yield cand
 
@@ -1983,6 +1996,11 @@ class GuidanceChangePlugin(EventPlugin):
             direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
             doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
         ):
+            # si = _sent_idx(span)
+            # sent_txt = sents[si][2] if si is not None else ""
+            # if self._is_expected_past(sent_txt):
+            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
+            #     continue
             yielded = True
             range_spans.append(span)
             yield cand
@@ -1993,6 +2011,11 @@ class GuidanceChangePlugin(EventPlugin):
             doc=doc, prox_hit=prox_hit, range_spans=range_spans,
             allow_doc_fallback=allow_doc_fallback
         ):
+            # si = _sent_idx(span)
+            # sent_txt = sents[si][2] if si is not None else ""
+            # if self._is_expected_past(sent_txt):
+            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
+            #     continue
             yielded = True
             yield cand
 
@@ -2005,32 +2028,54 @@ class GuidanceChangePlugin(EventPlugin):
             yield cand
             return  # only one stub by design
         
-        # IF NOTHING then emit a text-only stub from either text gate (with suppressors)
-        if not yielded and (text_gate_span or text_marker_span):
+        def _period_from_same_sentence_span(span):
+            si = _sent_idx(span)
+            if si is None:
+                return None
+            ss, se, _ = sents[si]
+            # search for period only inside the sentence bounds
+            return (_period_from_near_span(text, (ss, se))
+                    or _norm_period(text[ss:se]))  # local norm as a last resort
+
+        # helper: should suppress a *text stub* in this sentence?
+        def _suppress_text_stub(sent_txt, source_type):
+            # negations like: "no guidance", "not provide guidance", "does not intend to provide guidance"
+            RX_NO_GUIDANCE = re.compile(
+                r'(?:\bno\s+guidance\b)'
+                r'|(?:\b(?:does|do|will)\s+not\s+(?:provide|issue|give)\s+guidance\b)'
+                r'|(?:does\s+not\s+intend\s+to\s+provide\s+guidance)',
+                re.I
+            )
+            if self.rx_invite.search(sent_txt) or self.rx_disclaimer_inl.search(sent_txt):
+                return True
+            if RX_NO_GUIDANCE.search(sent_txt):
+                return True
+            # analyst/wire style suppression
+            if self.rx_sup_analyst.search(sent_txt) and source_type not in {"issuer_pr","exchange","regulator"}:
+                return True
+            # macro suppression unless issuer/exchange/regulator or with company pronoun
+            if self.rx_sup_macro.search(sent_txt) and source_type not in {"issuer_pr","exchange","regulator"}:
+                if not COMPANY_PRONOUNS.search(sent_txt):
+                    return True
+            return False
+
+        # --- A) Stub from text_gate (marker or bare "guidance")
+        if text_gate_ok:
             span = text_marker_span or text_gate_span
             si = _sent_idx(span)
             sent_txt = sents[si][2] if si is not None else ""
-
-            # sentence-level suppressors (same logic you apply for prox-hit)
-            if self.rx_invite.search(sent_txt) or self.rx_disclaimer_inl.search(sent_txt):
-                return
-            blk = _find_block_range(text, self.rx_disclaimer_blk)
-            if blk and si is not None and sents[si][0] >= blk[0]:
-                return
-
             st = doc.get("source_type")
-            if self.rx_sup_macro.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
-                if not COMPANY_PRONOUNS.search(sent_txt):
-                    return
-            if self.rx_sup_analyst.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
+
+            # sentence-level suppressors for stubs
+            if _suppress_text_stub(sent_txt, st):
+                if os.getenv("GUIDANCE_DEBUG"): print("[stub] skip:suppressor")
                 return
 
-            period_local = (
-                _period_from_near_span(text, span)
-                or _period_from_doc(doc)
-                or _norm_period(text)   # lets "… for 2025" become FY2025
-                or "UNKNOWN"
-            )
+            # NOTE: use *same-sentence* period to avoid latching to the previous sentence
+            period_local = (_period_from_same_sentence_span(span)
+                            or _period_from_doc(doc)
+                            or "UNKNOWN")
+
             yield {
                 "metric": "guidance",
                 "metric_kind": "text",
@@ -2045,7 +2090,88 @@ class GuidanceChangePlugin(EventPlugin):
                 "_trigger_source": "text_gate",
             }
             return
+        
+        # --- B) Stub from prox-but-no-numbers-in-cue-sentence
+        if prox_hit and prox_hit["rule"].get("type") in {"guidance_change","guidance_unchanged","guidance_reaffirm"}:
+            ss, se, sent_txt = cue_sent
+            if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
+                st = doc.get("source_type")
+                if _suppress_text_stub(sent_txt, st):
+                    if os.getenv("GUIDANCE_DEBUG"): print("[stub] skip:suppressor-prox")
+                    # do NOT emit stub; keep going (there might be valid numeric elsewhere)
+                else:
+                    # use *cue sentence* only for the period
+                    period_local = (_period_from_near_span(text, (ss, se))
+                                    or _norm_period(text[ss:se])
+                                    or _period_from_doc(doc)
+                                    or "UNKNOWN")
+                    yield {
+                        "metric": "guidance",
+                        "metric_kind": "text",
+                        "unit": "text",
+                        "currency": None,
+                        "value_type": "na",
+                        "value_low": None,
+                        "value_high": None,
+                        "basis": "reported",
+                        "period": period_local,
+                        "direction_hint": ("flat" if prox_hit["rule"]["type"] in {"guidance_unchanged","guidance_reaffirm"} else None),
+                        "_trigger_source": "fwd_cue",
+                        "_trigger_label":   cue["label"]   if cue else None,
+                        "_trigger_pattern": cue["pattern"] if cue else None,
+                        "_trigger_match":   cue["match"]   if cue else None,
+                        "_trigger_span":    cue["span"]    if cue else None,
+                        "_rule_type":       prox_hit["rule"]["type"],
+                        "_rule_name":       prox_hit["rule"]["name"],
+                    }
+                    return
 
+
+        # # IF NOTHING then emit a text-only stub from either text gate (with suppressors)
+        # if not yielded and (text_gate_span or text_marker_span):
+        #     span = text_marker_span or text_gate_span
+        #     si = _sent_idx(span)
+        #     sent_txt = sents[si][2] if si is not None else ""
+
+        #     # sentence-level suppressors (same logic you apply for prox-hit)
+        #     if self.rx_invite.search(sent_txt) or self.rx_disclaimer_inl.search(sent_txt):
+        #         return
+        #     blk = _find_block_range(text, self.rx_disclaimer_blk)
+        #     if blk and si is not None and sents[si][0] >= blk[0]:
+        #         return
+
+        #     st = doc.get("source_type")
+        #     if self.rx_sup_macro.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
+        #         if not COMPANY_PRONOUNS.search(sent_txt):
+        #             return
+        #     if self.rx_sup_analyst.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
+        #         return
+
+        #     period_local = (
+        #         _period_from_near_span(text, span)
+        #         or _period_from_doc(doc)
+        #         or _norm_period(text)   # lets "… for 2025" become FY2025
+        #         or "UNKNOWN"
+        #     )
+        #     yield {
+        #         "metric": "guidance",
+        #         "metric_kind": "text",
+        #         "unit": "text",
+        #         "currency": None,
+        #         "value_type": "na",
+        #         "value_low": None,
+        #         "value_high": None,
+        #         "basis": "reported",
+        #         "period": period_local,
+        #         "direction_hint": None,
+        #         "_trigger_source": "text_gate",
+        #     }
+        #     return
+
+            # helper: period from same sentence as a span
+    def _is_expected_past(self, sent_txt: str, cue_term: str | None = None) -> bool:
+        # Uses your existing classifier; True only when the sentence is clearly past.
+        return self._expected_mode(sent_txt, cue_term=cue_term) == "past"
 
     # ---------------- Helper extractors (behavior preserved) ----------------
     def _extract_pct_range_candidates(
@@ -2152,10 +2278,10 @@ class GuidanceChangePlugin(EventPlugin):
             _dprint("[pct] hit", f"span=({ms},{me})", f"sent={s!r}")
 
             # # Historical “expected … was …” and general past-tense suppression
-            # emode = self._expected_mode(s)
-            # if emode == "past":
-            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
-            #     continue
+            emode = self._expected_mode(s)
+            if emode == "past":
+                _dprint("[expected] skip: past-tense 'expected' in sentence")
+                continue
                 
             # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
             # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
@@ -2334,10 +2460,10 @@ class GuidanceChangePlugin(EventPlugin):
 
 
             #  # Historical “expected … was …” and general past-tense suppression
-            # emode = self._expected_mode(s)
-            # if emode == "past":
-            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
-            #     continue
+            emode = self._expected_mode(s)
+            if emode == "past":
+                _dprint("[expected] skip: past-tense 'expected' in sentence")
+                continue
                 
             # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
             # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
@@ -2488,10 +2614,10 @@ class GuidanceChangePlugin(EventPlugin):
 
 
             #  # Historical “expected … was …” and general past-tense suppression
-            # emode = self._expected_mode(s)
-            # if emode == "past":
-            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
-            #     continue
+            emode = self._expected_mode(s)
+            if emode == "past":
+                _dprint("[expected] skip: past-tense 'expected' in sentence")
+                continue
                 
             # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
             # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
@@ -2636,10 +2762,10 @@ class GuidanceChangePlugin(EventPlugin):
 
 
             #  # Historical “expected … was …” and general past-tense suppression
-            # emode = self._expected_mode(s)
-            # if emode == "past":
-            #     _dprint("[expected] skip: past-tense 'expected' in sentence")
-            #     continue
+            emode = self._expected_mode(s)
+            if emode == "past":
+                _dprint("[expected] skip: past-tense 'expected' in sentence")
+                continue
                 
             # # If clearly past-tense (was/were) and no forward cue in the sentence, skip
             # # (rx_fwd_cues should be compiled once from YAML fwd terms in __init__/configure)
@@ -2864,9 +2990,30 @@ class GuidanceChangePlugin(EventPlugin):
     #         return "future"
     #     # Ambiguous "expected" → conservative: suppress
     #     return "past"
+    
 
+    # def _expected_mode(self, sent: str, cue_term: str | None = None) -> str | None:
+    #     s = sent.lower()
+    #     # Only evaluate if the cue is an expect-family token; otherwise do nothing
+    #     if cue_term is not None and not self.rx_expect_family.search(cue_term):
+    #         return None
+
+    #     # If no expect* at all in the sentence, do nothing
+    #     if not self.rx_expect_family.search(s):
+    #         return None
+
+    #     has_past = bool(self.rx_expected_past.search(s))
+    #     has_fwd  = bool(self.rx_expected_forward.search(s))
+
+    #     if has_fwd and not has_past:
+    #         return "future"
+    #     if has_past and not has_fwd:
+    #         return "past"
+    #     # Mixed or ambiguous → don't suppress
+    #     return None
     def _expected_mode(self, sent: str, cue_term: str | None = None) -> str | None:
         s = sent.lower()
+
         # Only evaluate if the cue is an expect-family token; otherwise do nothing
         if cue_term is not None and not self.rx_expect_family.search(cue_term):
             return None
@@ -2875,16 +3022,14 @@ class GuidanceChangePlugin(EventPlugin):
         if not self.rx_expect_family.search(s):
             return None
 
-        has_past = bool(self.rx_expected_past.search(s))
-        has_fwd  = bool(self.rx_expected_forward.search(s))
-
-        if has_fwd and not has_past:
-            return "future"
-        if has_past and not has_fwd:
+        # IMPORTANT: Past beats forward (handles "was expected to ...")
+        if self.rx_expected_past.search(s):
             return "past"
-        # Mixed or ambiguous → don't suppress
-        return None
+        if self.rx_expected_forward.search(s):
+            return "future"
 
+        # Mixed/ambiguous without explicit past tokens → don't suppress
+        return None
     
     # ------ 3) Normalize & enrich ------
     def normalize(self, cand: dict) -> dict:
