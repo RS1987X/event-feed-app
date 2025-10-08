@@ -305,16 +305,29 @@ COMPANY_PRONOUNS = re.compile(
 # # Split on: period/question/exclamation/semicolon that are NOT part of a number, or on newlines.
 # _SPLIT_RX = re.compile(r"(?:(?<!\d)[.!?;](?!\d))|\n+")
 
-# --- Sentence splitting: don't break on decimals like 1.700 or 2.3 ---
-# Also don't split after common abbreviations such as "approx.", "ca.", or "c."
+# # --- Sentence splitting: don't break on decimals like 1.700 or 2.3 ---
+# # Also don't split after common abbreviations such as "approx.", "ca.", or "c."
+# _SPLIT_RX = re.compile(
+#     r"(?:(?<!\d)"           # not part of a number
+#     r"(?<!\bapprox)"        # don't split after 'approx.'
+#     r"(?<!\bca)"            # don't split after 'ca.'
+#     r"(?<!\bc)"             # don't split after 'c.'
+#     r"[.!?;](?!\d))"        # the actual splitter punctuation
+#     r"|\n+",
+#     re.I
+# )
+
+# # Split on '.', '!' or '?' when the '.' is NOT a decimal dot.
+# # Allow optional closing quotes/parens before whitespace or end of string.
+# _SPLIT_RX = re.compile(
+#     r"(?:\.(?!\d)|[!?])(?=[)\]\"'”’»]*\s|$)"
+# )
+
+# Split on '.', '!' or '?' when the '.' is NOT a decimal dot,
+# but do NOT split after common abbreviations (approx., ca., c., e.g., i.e.).
 _SPLIT_RX = re.compile(
-    r"(?:(?<!\d)"           # not part of a number
-    r"(?<!\bapprox)"        # don't split after 'approx.'
-    r"(?<!\bca)"            # don't split after 'ca.'
-    r"(?<!\bc)"             # don't split after 'c.'
-    r"[.!?;](?!\d))"        # the actual splitter punctuation
-    r"|\n+",
-    re.I
+    r"(?:(?<!\bapprox)(?<!\bca)(?<!\bc)(?<!\be\.g)(?<!\bi\.e)\.(?!\d)|[!?])(?=[)\]\"'”’»]*\s|$)",
+    re.I,
 )
 
 def _sentences_with_spans(text: str) -> list[tuple[int,int,str]]:
@@ -1730,13 +1743,7 @@ class GuidanceChangePlugin(EventPlugin):
                 if numeric_gate_ok:
                     break
 
-        # ---------- 5) Bare text gate: "guidance" + nearby period token ----------
-        # text_gate_span = None
-        # #if not trig and not prox_hit and not numeric_gate_ok:
-        # for i, (tok, sp) in enumerate(toks_spans):
-        #     if tok.startswith("guidance") and _has_period_near(i, window=8):
-        #         text_gate_span = sp
-        #         break
+
         # ---------- 5a) Bare text gate: "guidance" + nearby period token ----------
         text_gate_span = None
         ##if not trig and not prox_hit and not numeric_gate_ok:
@@ -1749,29 +1756,6 @@ class GuidanceChangePlugin(EventPlugin):
                 if has_period:
                     text_gate_span = sp
                     break
-        
-        # #---------- 5a) Bare text gate: "guidance" + nearby period token (refined) ----------
-        # text_gate_span = None
-        # #if not trig and not prox_hit and not numeric_gate_ok:
-        # for m in re.finditer(r'(?<!\w)guidance(?!\w)', text, re.I):
-        #     sp = m.span()  # RAW TEXT COORDS
-        #     has_period = bool(_period_from_near_span(text, sp) or _period_from_doc(doc) or _norm_period(text))
-        #     if has_period:
-        #         text_gate_span = sp
-        #         break            
-        
-        # # 5a) Bare "guidance" gate (raw text, robust period test)
-        # text_gate_span = None
-        # for m in re.finditer(r'(?<!\w)guidance(?!\w)', text, re.I):
-        #     sp = m.span()  # raw coords
-        #     has_period = bool(
-        #         _period_from_near_span(text, sp) or
-        #         _period_from_doc(doc) or
-        #         _norm_period(text)  # lets "... for 2025" become FY2025
-        #     )
-        #     if has_period:
-        #         text_gate_span = sp
-        #         break
 
         # ---------- 5b) Marker-only 'guidance interval/range' gate ----------
         text_marker_span = None
@@ -1784,36 +1768,8 @@ class GuidanceChangePlugin(EventPlugin):
                 # Require a nearby period using raw coordinates (avoid norm(text) offsets)
                 if r.get("require_period_token") and not _period_from_near_span(text, span):
                     continue
-                # use the *end* (or center) of the match for token lookup (more robust)
-                # probe = span[1] - 1  # or: (span[0] + span[1]) // 2
-                # j = next((i for i, (_, sp) in enumerate(toks_spans) if sp[0] <= probe < sp[1]), None)
-                # if r.get("require_period_token") and (j is None or not _has_period_near(j, window=self.prox_tokens)):
-                #     continue
                 text_marker_span = span
                 break
-
-
-        # # 5b) Marker-only 'guidance interval/range' gate (raw text span)
-        # text_marker_span = None
-        # for r in getattr(self, "text_stub_rules", []):
-        #     m = r["rx"].search(text)
-        #     if not m:
-        #         continue
-        #     sp = m.span()
-        #     # Forgiving period gating
-        #     has_period = bool(
-        #         _period_from_near_span(text, sp) or
-        #         _period_from_doc(doc) or
-        #         _norm_period(text)
-        #     )
-        #     if r.get("require_period_token", True) and not has_period:
-        #         # Optional: accept a same-sentence year as a fallback
-        #         si = _sent_idx(sp)
-        #         sent_txt = sents[si][2] if si is not None else ""
-        #         if not re.search(r"\b(19|20)\d{2}\b", sent_txt):
-        #             continue
-        #     text_marker_span = sp
-        #     break
 
         if os.getenv("GUIDANCE_DEBUG") and text_marker_span:
             s, e = text_marker_span
@@ -1864,15 +1820,15 @@ class GuidanceChangePlugin(EventPlugin):
             }
             cue_i = _sent_idx(prox_hit["meta"]["cue_span"])
             met_i = _sent_idx(prox_hit["meta"]["metric_span"])
-            # if cue_i is None or met_i is None:
-            #     return
+            if cue_i is None or met_i is None:
+                return
             if not self.allow_cross_sentence:
-                # if cue_i != met_i:
-                #     return
+                if cue_i != met_i:
+                     return
                 cue_sent = sents[cue_i]
             else:
-                # if not (-self.look_left_sentences <= (met_i - cue_i) <= self.look_right_sentences):
-                #     return
+                if not (-self.look_left_sentences <= (met_i - cue_i) <= self.look_right_sentences):
+                    return
                 cue_sent = sents[cue_i]
 
             ss, se, sent = cue_sent
@@ -1896,35 +1852,6 @@ class GuidanceChangePlugin(EventPlugin):
                 if not (re.search(r"\b(guidance|outlook|forecast|target|aim|mål)\b", sent, re.I)
                         or PERCENT_RANGE.search(sent) or CCY_NUMBER.search(sent)):
                     return
-
-            # Expect-family past check (only if the *cue* is expect*)
-            cue_term = (prox_hit.get("meta", {}).get("cue_term") or "")
-            if self.rx_expect_family.search(cue_term):
-                emode = self._expected_mode(sent, cue_term=cue_term)
-                if emode == "past":
-                    return
-                
-        # # If we have a guidance cue but no numbers in that cue sentence → stub
-        # if prox_hit and prox_hit["rule"].get("type") in {"guidance_change", "guidance_unchanged", "guidance_reaffirm"}:
-        #     ss, se, sent_txt = cue_sent
-        #     if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
-        #         span = prox_hit["meta"]["cue_span"]
-        #         period_local = _period_from_near_span(text, span) or _period_from_doc(doc) or "UNKNOWN"
-        #         yield {
-        #             "metric": "guidance", "metric_kind": "text", "unit": "text", "currency": None,
-        #             "value_type": "na", "value_low": None, "value_high": None,
-        #             "basis": "reported", "period": period_local,
-        #             "direction_hint": ("flat" if prox_hit["rule"]["type"] in {"guidance_unchanged","guidance_reaffirm"} else None),
-        #             "_trigger_source": "fwd_cue",
-        #             "_trigger_label":   cue["label"]   if cue else None,
-        #             "_trigger_pattern": cue["pattern"] if cue else None,
-        #             "_trigger_match":   cue["match"]   if cue else None,
-        #             "_trigger_span":    cue["span"]    if cue else None,
-        #             "_rule_type":       prox_hit["rule"]["type"],
-        #             "_rule_name":       prox_hit["rule"]["name"],
-        #         }
-        #         return
-
 
         # ---------- 10) Document context ----------
         period_doc = _norm_period(text)
@@ -1957,8 +1884,6 @@ class GuidanceChangePlugin(EventPlugin):
         allow_doc_fallback = bool(trig or prox_hit or numeric_gate_ok or text_gate_ok)
 
         # ---------- 11) Extraction (delegated to existing helpers) ----------
-        
-
         yielded = False
 
         pct_range_spans = []
@@ -1967,11 +1892,6 @@ class GuidanceChangePlugin(EventPlugin):
             direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
             doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
         ):
-            # si = _sent_idx(span)
-            # sent_txt = sents[si][2] if si is not None else ""
-            # if self._is_expected_past(sent_txt):
-            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
-            #     continue
             yielded = True
             pct_range_spans.append(span)
             yield cand
@@ -1982,11 +1902,6 @@ class GuidanceChangePlugin(EventPlugin):
             doc=doc, prox_hit=prox_hit, pct_range_spans=pct_range_spans,
             allow_doc_fallback=allow_doc_fallback
         ):
-            # si = _sent_idx(span)
-            # sent_txt = sents[si][2] if si is not None else ""
-            # if self._is_expected_past(sent_txt):
-            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
-            #     continue
             yielded = True
             yield cand
 
@@ -1996,11 +1911,7 @@ class GuidanceChangePlugin(EventPlugin):
             direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
             doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
         ):
-            # si = _sent_idx(span)
-            # sent_txt = sents[si][2] if si is not None else ""
-            # if self._is_expected_past(sent_txt):
-            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
-            #     continue
+
             yielded = True
             range_spans.append(span)
             yield cand
@@ -2011,11 +1922,7 @@ class GuidanceChangePlugin(EventPlugin):
             doc=doc, prox_hit=prox_hit, range_spans=range_spans,
             allow_doc_fallback=allow_doc_fallback
         ):
-            # si = _sent_idx(span)
-            # sent_txt = sents[si][2] if si is not None else ""
-            # if self._is_expected_past(sent_txt):
-            #     if os.getenv("GUIDANCE_DEBUG"): print("[pct] skip:expected_past", sent_txt)
-            #     continue
+
             yielded = True
             yield cand
 
@@ -2854,7 +2761,7 @@ class GuidanceChangePlugin(EventPlugin):
     trigger_source: str | None = None,
     direction_hint: str | None = None,
     hits: list | None = None,
-    ):
+):
         """
         Emit a single text-only 'guidance' stub when either:
         A) We have a prox rule indicating unchanged/reaffirm/initiate and a known period.
@@ -2864,8 +2771,61 @@ class GuidanceChangePlugin(EventPlugin):
         """
         import re
 
-        if period_doc == "UNKNOWN":
-            return  # never emit stubs without a concrete period
+        # ---------- Helper to derive a period from a span's sentence ----------
+        def _period_from_span(span):
+            if not span:
+                return None
+            for ss, se, s in sents:
+                if ss <= span[0] < se:
+                    # Prefer the sentence itself first
+                    return _norm_period(s) or _period_from_near_span(text, (ss, se))
+            return None
+
+        # Try to get a locally-derived period first (from prox/trig/cue sentence)
+        local_pref = None
+        if prox_hit:
+            local_pref = _period_from_span((prox_hit.get("meta") or {}).get("cue_span"))
+        if not local_pref and trig and isinstance(trig.get("span"), (tuple, list)):
+            local_pref = _period_from_span(trig["span"])
+        if not local_pref and cue and isinstance(cue.get("span"), (tuple, list)):
+            local_pref = _period_from_span(cue["span"])
+        
+        def _clean_period(p):
+            # Treat sentinel/unknowns as absence for local selection only
+            return None if p in (None, "UNKNOWN", "PERIOD-UNKNOWN", "FY-UNKNOWN") else p
+        
+        local_pref = _clean_period(local_pref)
+
+        
+
+        print(
+                "ENTER",
+                f"title={head!r}",
+                f"source_type={doc.get('source_type')}",
+                f"period_doc={period_doc!r}",
+                f"local_pref={local_pref!r}",
+                f"has_hits={bool(hits)}",
+                f"direction_hint={direction_hint!r}",
+                f"prox_rule={(prox_hit or {}).get('rule',{}).get('type') if prox_hit else None}",
+            )
+
+
+        rule_type = (prox_hit or {}).get("rule", {}).get("type")
+
+        # Only proceed if:
+        #  - we have an "unchanged/reaffirm/initiate" prox rule, OR
+        #  - we have a text-only directional cue (direction_hint is not None).
+        if not (
+            rule_type in {"guidance_unchanged", "guidance_reaffirm", "guidance_initiate"}
+            or (hits and direction_hint is not None)
+        ):
+            _dprint("EXIT: skip unchanged-stub",
+                    f"rule_type={rule_type}", f"direction_hint={direction_hint!r}")
+            return
+        
+        # # Only suppress if BOTH local and doc-level periods are unknown
+        # if (period_doc in (None, "UNKNOWN", "PERIOD-UNKNOWN", "FY-UNKNOWN")) and not local_pref:
+        #     return
 
         st = doc.get("source_type")
 
@@ -2873,10 +2833,19 @@ class GuidanceChangePlugin(EventPlugin):
         if prox_hit and prox_hit.get("rule", {}).get("type") in {
             "guidance_unchanged", "guidance_reaffirm", "guidance_initiate"
         }:
+             # 1) Always get the cue sentence
+            cue_sentence = None
+            cue_span = (prox_hit.get("meta") or {}).get("cue_span")
+            if cue_span:
+                for ss, se, s in sents:
+                    if ss <= cue_span[0] < se:
+                        cue_sentence = s
+                        break
+
             # For non-issuer sources, require a company pronoun in the cue sentence.
             if st not in {"issuer_pr", "exchange", "regulator"}:
                 sent_txt = None
-                cue_span = prox_hit.get("meta", {}).get("cue_span")
+                cue_span = (prox_hit.get("meta") or {}).get("cue_span")
                 if cue_span:
                     for ss, se, s in sents:
                         if ss <= cue_span[0] < se:
@@ -2884,6 +2853,51 @@ class GuidanceChangePlugin(EventPlugin):
                             break
                 if not (sent_txt and COMPANY_PRONOUNS.search(sent_txt)):
                     return
+            
+            cue_period = _clean_period(_norm_period(cue_sentence))
+            
+            # Prefer local (cue/trig/cue) sentence period; fallback to doc-level
+            # 3) Period selection: local -> cue sentence -> headline -> doc
+            period_local = (
+                local_pref
+                or cue_period
+                #or _norm_period(head)
+                or period_doc
+                )
+            
+            #debug prints
+            if prox_hit:
+                cs, ce = (prox_hit.get("meta") or {}).get("cue_span") or (None, None)
+                print("[unchanged-stub] prox=True",
+                    "cue_term=", (prox_hit.get("meta") or {}).get("cue_term"),
+                    "cue_txt=", (text[cs:ce] if cs is not None else None)),
+            else:
+                print("[unchanged-stub] prox=False")
+            
+
+            # Gather cue info safely
+            cs, ce = ((prox_hit.get("meta") or {}).get("cue_span") or (None, None))
+            cue_term = (prox_hit.get("meta") or {}).get("cue_term") if prox_hit else None
+            cue_txt = text[cs:ce] if cs is not None and ce is not None else None
+
+            cue_sent = None
+            if cs is not None:
+                for ss, se, s in sents:
+                    if ss <= cs < se:
+                        cue_sent = s
+                        break
+
+            print(
+                "[UNCHANGED-DBG]",
+                "prox=", bool(prox_hit),
+                "cue_span=", (cs, ce),
+                "cue_term=", cue_term,
+                "cue_txt=", cue_txt,
+                "local_pref=", repr(local_pref),
+                "period_doc=", repr(period_doc),
+                
+                "cue_sentence=", repr(cue_sent),
+            )
 
             yield {
                 "metric": "guidance",
@@ -2894,7 +2908,7 @@ class GuidanceChangePlugin(EventPlugin):
                 "value_low": None,
                 "value_high": None,
                 "basis": basis or "reported",
-                "period": period_doc,
+                "period": period_local,  # <-- critical change
                 "direction_hint": (
                     "flat" if prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"} else None
                 ),
@@ -2909,12 +2923,12 @@ class GuidanceChangePlugin(EventPlugin):
             return  # only one stub
 
         # ---------- B) Tight text-only fallback (directional text w/o numbers) ----------
-        # Mirrors your old v1 "B) Tight text-only fallback" block.
         if (
             hits
             and direction_hint is not None
             and not self.rx_invite.search(head)
         ):
+            # Gate text-only on non-issuer wires unless a company pronoun appears near 'guidance/outlook'
             if st not in {"issuer_pr", "exchange", "regulator"}:
                 ok_textonly = False
                 for _, _, s in sents:
@@ -2923,6 +2937,21 @@ class GuidanceChangePlugin(EventPlugin):
                         break
                 if not ok_textonly:
                     return
+
+            # Prefer trigger/cue sentence period; fallback to doc-level
+            fallback_span = None
+            if trig and isinstance(trig.get("span"), (tuple, list)):
+                fallback_span = trig["span"]
+            elif cue and isinstance(cue.get("span"), (tuple, list)):
+                fallback_span = cue["span"]
+            
+              # TO THIS:
+            period_local = (
+                _period_from_span(fallback_span)  # sentence-first, then nearby window (your helper already does that)
+                or local_pref
+                #or _norm_period(head)             # <-- headline fallback fixes ma-suppressor
+                or period_doc
+            )
 
             yield {
                 "metric": "guidance",
@@ -2933,7 +2962,7 @@ class GuidanceChangePlugin(EventPlugin):
                 "value_low": None,
                 "value_high": None,
                 "basis": basis or "reported",
-                "period": period_doc,
+                "period": period_local,  # <-- critical change
                 "direction_hint": direction_hint,
                 "_trigger_source": trigger_source or ("strong" if trig else ("fwd_cue" if cue else "none")),
                 "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,

@@ -478,9 +478,9 @@ NEG_PERIOD_FORMAT = [
         "FY2025 outlook",
         "Revenue expected to be 1,700–1,790.",  # no currency code
         "issuer_pr",
-        set(),
+        {("guidance", None, None, "text", "FY2025")},
         False,
-        id="no-currency-suppressed",
+        id="no-currency-keep",
     ),
 ]
 
