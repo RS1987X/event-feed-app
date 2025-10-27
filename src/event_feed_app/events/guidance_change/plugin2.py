@@ -33,9 +33,51 @@ FIN_METRICS = {
     "försäljning": ("net_sales","level","ccy"),
     "rörelsemarginal": ("operating_margin","margin","pct"),
     "organisk tillväxt": ("organic_growth","growth","pct"),
-    "jämförbar": ("organic_growth","growth","pct"),
     "ebita marginal": ("ebita_margin","margin","pct"),
 }
+
+FIN_METRICS.update({
+    # Already have: "omsättning": ("revenue","level","ccy"),
+    "omsättningen": ("revenue","level","ccy"),
+
+    # Already have: "försäljning": ("net_sales","level","ccy"),
+    "försäljningen": ("net_sales","level","ccy"),
+
+    # EBIT / operating margin Swedish variants
+    "rörelseresultat":  ("ebit","level","ccy"),
+    "rörelseresultatet":("ebit","level","ccy"),
+    "rörelsemarginalen":("operating_margin","margin","pct"),
+
+    # EBITA margin definite
+    "ebita-marginalen": ("ebita_margin","margin","pct"),
+})
+
+FIN_METRICS.update({
+    # Revenue synonyms
+    "nettoomsättning":      ("revenue", "level", "ccy"),
+    "nettoomsättningen":    ("revenue", "level", "ccy"),
+    # If acceptable for your corpus, include these two. If “intäkter” is too broad for you, omit them.
+    "intäkter":             ("revenue", "level", "ccy"),
+    "intäkterna":           ("revenue", "level", "ccy"),
+
+    # Operating margin variants
+    "rörelsemarginal":      ("operating_margin", "margin", "pct"),   # <- missing base form
+    "rörelsemarginalen":    ("operating_margin", "margin", "pct"),   # (you already had this)
+
+    # EBIT margin used as operating margin in Swedish PRs
+    "ebit-marginal":        ("operating_margin", "margin", "pct"),
+    "ebit marginal":        ("operating_margin", "margin", "pct"),
+    "ebit-marginalen":      ("operating_margin", "margin", "pct"),
+
+    # EBITDA/EBITA margin (you already had ebita-marginalen)
+    "ebitda-marginal":      ("ebitda_margin", "margin", "pct"),
+    "ebitda marginal":      ("ebitda_margin", "margin", "pct"),
+    "ebitda-marginalen":    ("ebitda_margin", "margin", "pct"),
+    "ebita-marginal":       ("ebita_margin",  "margin", "pct"),
+    "ebita marginal":       ("ebita_margin",  "margin", "pct"),
+    # you already have:
+    # "ebita-marginalen":   ("ebita_margin",  "margin", "pct"),
+})
 
 APPROX_WORDS = (
     r"(?:~|≈|"                        # symbols
@@ -44,11 +86,14 @@ APPROX_WORDS = (
 )
 
 PERCENT_RANGE = re.compile(r"""
-    (?P<approx>about|around|approximately|approx\.?|close\sto|near|circa|c\.|~)?\s*
+    (?P<approx>
+        about|around|approximately|approx\.?|close\sto|near|circa|c\.|~|
+        omkring|runt|ungefär|cirka|ca\.?|c\:a|≈
+    )?\s*
     (?P<a>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
     (?P<unit>%|percent|procent)\s?
     (?:
-        (?:-|–|to)\s?                       # dash, en dash, or the word "to"
+        (?:-|–|to)\s?
         (?P<b>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
         (?P=unit)
     )?
@@ -57,19 +102,22 @@ PERCENT_RANGE = re.compile(r"""
 
 NUM_GROUP = r"\d{1,3}(?:[ ,.\u00A0\u202F\u2009’']\d{3})*(?:[.,]\d{1,2})?"
 
+# Add Swedish scale tokens to the trailing scale group
+_SCALE = r"(?:million|mn|m|billion|bn|b|thousand|k|mkr|mnkr|mdr|mdkr|tkr)"
+
 CCY_NUMBER = re.compile(
     r"(?P<ccy>SEK|EUR|USD|NOK|DKK)\s?"
-    r"(?P<num>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)"
-    r"(?:\s*(?P<scale>million|mn|m|billion|bn|thousand|k))?",
+    rf"(?P<num>{NUM_GROUP})"
+    rf"(?:\s*(?P<scale>{_SCALE}))?",
     re.I
 )
 
 CCY_RANGE = re.compile(
     r"(?P<ccy>SEK|EUR|USD|NOK|DKK)\s?"
-    r"(?P<a>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)\s?"
+    rf"(?P<a>{NUM_GROUP})\s?"
     r"(?:-|–|to)\s?"
-    r"(?P<b>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)"
-    r"(?:\s*(?P<scale>million|mn|m|billion|bn|thousand|k))?",
+    rf"(?P<b>{NUM_GROUP})"
+    rf"(?:\s*(?P<scale>{_SCALE}))?",
     re.I
 )
 
@@ -83,12 +131,17 @@ def _apply_scale(value: float, scale: str | None) -> float:
     if not scale:
         return value
     s = scale.strip().lower()
-    if s in {"m", "mn", "million"}:
-        return value                 # already millions
-    if s in {"bn", "billion", "b"}:
-        return value * 1000.0        # billions -> millions
-    if s in {"k", "thousand"}:
-        return value / 1000.0        # thousands -> millions
+    # strip trivial trailing punctuation
+    s = s.rstrip('.:;,')
+    # millions
+    if s in {"m", "mn", "million", "mkr", "mnkr"}:
+        return value
+    # billions -> millions
+    if s in {"bn", "billion", "b", "mdr", "mdkr"}:
+        return value * 1000.0
+    # thousands -> millions
+    if s in {"k", "thousand", "tkr"}:
+        return value / 1000.0
     return value
 
 
@@ -2583,18 +2636,26 @@ class GuidanceChangePlugin(EventPlugin):
                     _dprint("[rng] skip:period_unknown_no_fallback")
                     continue
 
-            ccy   = m.group("ccy").upper()
-            scale = (m.groupdict() or {}).get("scale")
-            a = _apply_scale(_to_float(m.group("a")), scale)
-            b = _apply_scale(_to_float(m.group("b")), scale)
-            low, high = (min(a, b), max(a, b))
+            # ccy   = m.group("ccy").upper()
+            # scale = (m.groupdict() or {}).get("scale")
+            # a = _apply_scale(_to_float(m.group("a")), scale)
+            # b = _apply_scale(_to_float(m.group("b")), scale)
+            # low, high = (min(a, b), max(a, b))
+
+            ccy = m.group("ccy").upper()
+            scale = (m.group("scale") or "").strip()
+            # your comma→dot helper
+            lo = _to_float(m.group("a"))   # 2.1
+            hi = _to_float(m.group("b"))   # 2.3
+            lo_m = _apply_scale(lo, scale) # 2100.0 if mdr
+            hi_m = _apply_scale(hi, scale) # 2300.0 if mdr
 
             metric, kind, unit = best_v
-            _dprint("[rng] yield", f"metric={metric}", f"low={low}", f"high={high}",
+            _dprint("[rng] yield", f"metric={metric}", f"low={lo_m}", f"high={hi_m}",
                     f"ccy={ccy}", f"period={period_local}", f"d={best_d}", f"nearest_key={best_k}")
             yield ({
                 "metric": metric, "metric_kind": kind, "unit": "ccy", "currency": ccy,
-                "value_type": "range", "value_low": low, "value_high": high,
+                "value_type": "range", "value_low": lo_m, "value_high": hi_m,
                 "basis": basis, "period": period_local,
                 "direction_hint": direction_hint,
                 "_trigger_source": trigger_source,

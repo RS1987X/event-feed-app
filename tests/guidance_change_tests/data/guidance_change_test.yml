@@ -25,7 +25,7 @@ events:
         look_right_sentences: 0
 
       unchanged_markers_en: ["unchang", "in line", "no change", "as previously", "as prior"]
-      unchanged_markers_sv: ["oföränd", "i linje med", "som tidigare"]
+      unchanged_markers_sv: ["oföränd", "i linje med", "som tidigare", "som tidigare kommunicerats", "ingen förändring"]
 
     patterns:
       triggers:
@@ -39,7 +39,8 @@ events:
       fwd_cue:
         terms:
           en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect","guiding"]
-          sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
+          sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror",
+               förväntas, väntas, bedöms]   # <- NEW passive forms
 
       guidance_proximity_rules:
         - name: en_guidance_change
@@ -74,12 +75,59 @@ events:
           window_tokens: 10
           same_sentence: true
           require_period_token: true
+        
+        - name: sv_guidance_change
+          type: guidance_change
+          lang: sv
+          verbs: [höja, höjer, höjde, höjs, sänka, sänker, sänkte, sänks, uppdatera, uppdaterar, uppdaterade, uppdateras,
+                  precisera, preciserar, preciserade, preciseras, snäva in, snävar in, snävade in, snävas in,
+                  bredda, breddar, breddade, breddas]   # widen/narrow equivalents
+          guidance_markers: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: sv_guidance_unchanged_verbal
+          type: guidance_unchanged
+          lang: sv
+          verbs: [upprepa, upprepar, upprepade, upprepas, bekräfta, bekräftar, bekräftade, bekräftas,
+                  lämna, lämnar, lämnade, lämnas]       # "lämnar oförändrad"
+          guidance_markers: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
+          window_tokens: 10
+          same_sentence: true
+
+        - name: sv_guidance_unchanged_token
+          type: guidance_unchanged
+          lang: sv
+          guidance_markers: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
+          unchanged_tokens: "@unchanged_markers_sv"
+          window_tokens: 6
+          same_sentence: true
+
+        - name: sv_guidance_initiate
+          type: guidance_initiate
+          lang: sv
+          verbs: [initiera, initierar, initierade, initieras, introducera, introducerar, introducerade, introduceras,
+                  lansera, lanserar, lanserade, lanseras, presentera, presenterar, presenterade, presenteras,
+                  publicera, publicerar, publicerade, publiceras, kommunicera, kommunicerar, kommunicerade, kommuniceras,
+                  fastställa, fastställer, fastställde, fastställs]
+          guidance_markers: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
+          window_tokens: 10
+          same_sentence: true
+          require_period_token: true
 
       numeric_guidance_rules:
         - name: en_guidance_numeric
           type: guidance_stated
           lang: en
           guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          window_tokens: 8
+          same_sentence: true
+          require_number: true
+        
+        - name: sv_guidance_numeric
+          type: guidance_stated
+          lang: sv
+          guidance_markers: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
           window_tokens: 8
           same_sentence: true
           require_number: true
@@ -98,18 +146,29 @@ events:
           same_sentence: true
           require_period_token: true
 
+        - name: sv_guidance_interval_stub
+          type: guidance_text_stub
+          lang: sv
+          markers:
+            - "prognosintervall"
+            - "målintervall"
+            - "guidningsintervall"
+            - "inom prognosintervallet"
+          same_sentence: true
+          require_period_token: true
+        
+
       dir_up:
         any:
-          - '\b(improv\w+|increase\w*|expand\w*|grow\w*|strengthen\w*|better)\b'
+          - '\b(improv\w+|increase\w*|expand\w*|grow\w*|strengthen\w*|better|öka\w*|väx\w*|stig\w*|förbättr\w*|tillta\w*)\b'
       dir_dn:
         any:
-          - '\b(declin\w+|decreas\w+|contract\w*|pressure|pressures|headwind\w*|worse)\b'
-
+          - '\b(declin\w+|decreas\w+|contract\w*|pressure|pressures|headwind\w*|worse|minsk\w*|sjunk\w*|försämr\w*|avta\w*)\b'
+      
       invite:
         any:
-          #- '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder)\b'
-          - '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder|capital\s+markets\s+day|cmd)\b'
-
+          - '\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder|capital\s+markets\s+day|cmd|kapitalmarknadsdag(en)?)\b'
+      
       disclaimer_block:
         any:
           - '(forward[-\s]looking\s+statements|safe\s+harbor|cautionary\s+statement)'
@@ -152,3 +211,19 @@ events:
         - "had been expected"
         - "previously expected"
         - "earlier expected"
+      
+      expected_forward_sv:
+        - "förväntas"
+        - "väntas"
+        - "förväntar oss"
+        - "räknar med"
+        - "siktar på"
+        - "bedöms"
+        - "kommer att"
+
+      expected_past_sv:
+        - "som förväntat"
+        - "enligt förväntan"
+        - "tidigare förväntat"
+        - "hade förväntat"
+        - "hade väntat"
