@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re, json, hashlib, math
-from typing import Any, Dict, Iterable, Mapping, Tuple, Optional, Pattern, List
+from typing import Any, Dict, Iterable, Mapping, Tuple, Optional, Pattern, List, cast
 from datetime import datetime, timezone
 
 from ..base import EventPlugin
@@ -192,8 +192,12 @@ def _norm_period(text: str) -> str:
 
 
 def _detect_basis(s: str) -> str:
-    if BASIS_ORGANIC.search(s): return "organic"
-    if BASIS_CCFX.search(s): return "cc_fx"
+    """Return basis tag or default 'reported' instead of implicit None."""
+    if BASIS_ORGANIC.search(s):
+        return "organic"
+    if BASIS_CCFX.search(s):
+        return "cc_fx"
+    return "reported"
 def _to_float(x: str) -> float:
     s = str(x).strip()
     if not s:
@@ -514,6 +518,19 @@ class GuidanceChangePlugin(EventPlugin):
         self.rx_expect_family = re.compile(r"\b(expect\w*|förvänt\w*)\b", re.I)
 
         self.text_stub_rules: list[dict] = []
+
+    # ---------------- Gate ----------------
+    def gate(self, doc: Mapping[str, Any]) -> bool:
+        """
+        Gate intentionally passes all documents through (returns True).
+        
+        The original gate was too restrictive (required earnings labels OR aggressive 
+        trigger phrases), blocking many legitimate guidance announcements. For precision 
+        guidance detection, the detect() method's internal logic is sufficient.
+        
+        See guidance_change.py line 596-597 where the original job also bypasses gate.
+        """
+        return True  # Pass all documents through; detect() handles precision filtering
 
     def configure(self, cfg: Optional[dict]) -> None:
         """
@@ -907,7 +924,7 @@ class GuidanceChangePlugin(EventPlugin):
             return False
 
         # ---------------- Proximity rules from YAML ----------------
-        prox_hit = None  # {"rule": rule_dict, "meta": proximity_meta}
+        prox_hit: Optional[Dict[str, Any]] = None  # {"rule": rule_dict, "meta": proximity_meta}
         best_d = 10**9
 
         for r in self.prox_rules:
@@ -932,19 +949,21 @@ class GuidanceChangePlugin(EventPlugin):
             if ok:
                 # Optional: enforce period token for "initiate" rules
                 if r.get("require_period_token"):
+                    if not meta:
+                        continue
                     m0, _ = meta["metric_span"]
                     j = next((i for i, (_,sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
                     if j is None or not _has_period_near(toks, j, window=r["window_tokens"]):
                         continue
 
                 # Keep closest by token distance
-                if meta["token_dist"] < best_d:
+                if meta and meta.get("token_dist", 10**9) < best_d:
                     prox_hit = {"rule": r, "meta": meta}
-                    best_d = meta["token_dist"]
+                    best_d = int(meta.get("token_dist", best_d))
 
         # Optional char proximity if you still support char/either/both
-        char_ok = False
-        if prox_hit:
+        char_ok: bool = False
+        if prox_hit and prox_hit.get("meta"):
             cs, ce = prox_hit["meta"]["cue_span"]; ms, me = prox_hit["meta"]["metric_span"]
             cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
             char_ok = abs(cue_c - met_c) <= self.prox_chars
@@ -961,7 +980,7 @@ class GuidanceChangePlugin(EventPlugin):
                             break
                 if numeric_gate_ok:
                     break
-         # ---------------- Legacy fallback: fwd-cue ↔ metric proximity ----------------
+    # ---------------- Legacy fallback: fwd-cue ↔ metric proximity ----------------
         # Covers cases like: "expects revenue to be EUR ..." (no 'guidance' token)
         if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
             ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
@@ -1299,10 +1318,10 @@ class GuidanceChangePlugin(EventPlugin):
                 "period": period,
                 "direction_hint": direction_hint,
                 "_trigger_source":  trigger_source,
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
                 "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
             }
@@ -1379,13 +1398,15 @@ class GuidanceChangePlugin(EventPlugin):
             if ok:
                 # Optional: enforce period token for "initiate" rules
                 if r.get("require_period_token"):
+                    if not meta or not meta.get("metric_span"):
+                        continue
                     m0, _ = meta["metric_span"]
                     j = next((i for i, (_,sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
                     if j is None or not _has_period_near(toks, j, window=r["window_tokens"]):
                         continue
 
                 # Keep closest by token distance
-                if meta["token_dist"] < best_d:
+                if meta and meta.get("token_dist") is not None and meta["token_dist"] < best_d:
                     prox_hit = {"rule": r, "meta": meta}
                     best_d = meta["token_dist"]
 
@@ -1409,7 +1430,7 @@ class GuidanceChangePlugin(EventPlugin):
                     break
         
         # Optional bare "guidance + period" text gate (no numbers/verbs)  # NEW
-        text_gate_span = None
+        text_gate_span: Optional[Tuple[int,int]] = None
         if not trig and not prox_hit and not numeric_gate_ok:  # NEW
             for i, (tok, sp) in enumerate(toks_spans):
                 if tok.startswith("guidance") and _has_period_near(toks, i, window=8):
@@ -1524,6 +1545,8 @@ class GuidanceChangePlugin(EventPlugin):
 
         # If we have a guidance cue (change/unchanged) but no numbers in that cue sentence, emit stub
         if prox_hit and prox_hit["rule"].get("type") in {"guidance_change","guidance_unchanged","guidance_reaffirm"}:
+            if not cue_sent:
+                return
             ss, se, sent_txt = cue_sent
             if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
                 span = prox_hit["meta"]["cue_span"]
@@ -1772,12 +1795,14 @@ class GuidanceChangePlugin(EventPlugin):
                 continue
 
             if r.get("require_period_token"):
+                if not meta or not meta.get("metric_span"):
+                    continue
                 m0, _ = meta["metric_span"]
                 j = next((i for i, (_, sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
                 if j is None or not _has_period_near(j, window=r["window_tokens"]):
                     continue
 
-            if meta["token_dist"] < best_d:
+            if meta and meta.get("token_dist") is not None and meta["token_dist"] < best_d:
                 prox_hit = {"rule": r, "meta": meta}
                 best_d = meta["token_dist"]
 
@@ -1817,7 +1842,7 @@ class GuidanceChangePlugin(EventPlugin):
                     break
 
         # ---------- 5b) Marker-only 'guidance interval/range' gate ----------
-        text_marker_span = None
+        text_marker_span: Optional[Tuple[int,int]] = None
         if getattr(self, "text_stub_rules", None):
             for r in self.text_stub_rules:
                 m = r["rx"].search(text)
@@ -2059,6 +2084,8 @@ class GuidanceChangePlugin(EventPlugin):
         
         # --- B) Stub from prox-but-no-numbers-in-cue-sentence
         if prox_hit and prox_hit["rule"].get("type") in {"guidance_change","guidance_unchanged","guidance_reaffirm"}:
+            if not cue_sent:
+                return
             ss, se, sent_txt = cue_sent
             if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
                 st = doc.get("source_type")
@@ -2218,6 +2245,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             v, k = best
             return v, k, best_d
 
@@ -2408,6 +2437,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             v, k = best
             return v, k, best_d
 
@@ -2566,6 +2597,12 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
+            if best is None:
+                return None, None, None
+            if best is None:
+                return None, None, None
             (v, k) = best
             return v, k, best_d
 
@@ -2718,6 +2755,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             (v, k) = best
             return v, k, best_d
 
@@ -2921,7 +2960,7 @@ class GuidanceChangePlugin(EventPlugin):
                 if not (sent_txt and COMPANY_PRONOUNS.search(sent_txt)):
                     return
             
-            cue_period = _clean_period(_norm_period(cue_sentence))
+            cue_period = _clean_period(_norm_period(cue_sentence or ""))
             
             # Prefer local (cue/trig/cue) sentence period; fallback to doc-level
             # 3) Period selection: local -> cue sentence -> headline -> doc
@@ -2937,7 +2976,7 @@ class GuidanceChangePlugin(EventPlugin):
                 cs, ce = (prox_hit.get("meta") or {}).get("cue_span") or (None, None)
                 print("[unchanged-stub] prox=True",
                     "cue_term=", (prox_hit.get("meta") or {}).get("cue_term"),
-                    "cue_txt=", (text[cs:ce] if cs is not None else None)),
+                    "cue_txt=", (text[cs:ce] if cs is not None else None))
             else:
                 print("[unchanged-stub] prox=False")
             
@@ -2980,10 +3019,10 @@ class GuidanceChangePlugin(EventPlugin):
                     "flat" if prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"} else None
                 ),
                 "_trigger_source": trigger_source or ("fwd_cue" if prox_hit else "none"),
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"],
                 "_rule_name":       prox_hit["rule"]["name"],
             }
@@ -3032,10 +3071,10 @@ class GuidanceChangePlugin(EventPlugin):
                 "period": period_local,  # <-- critical change
                 "direction_hint": direction_hint,
                 "_trigger_source": trigger_source or ("strong" if trig else ("fwd_cue" if cue else "none")),
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
                 "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
             }
@@ -3143,32 +3182,46 @@ class GuidanceChangePlugin(EventPlugin):
         return (cand["company_id"], cand["period"], cand["metric"], cand["basis"])
 
     def compare(self, cand: dict, prior: dict | None) -> dict:
-        out = {
-            "new_mid": None, "new_width": None,
-            "delta_pp": None, "delta_pct": None, "range_tightened": None,
-            "old_low": None, "old_high": None, "old_mid": None, "old_width": None,
+        out: Dict[str, Any] = {
+            "new_mid": None,
+            "new_width": None,
+            "delta_pp": None,
+            "delta_pct": None,
+            "range_tightened": None,
+            "old_low": None,
+            "old_high": None,
+            "old_mid": None,
+            "old_width": None,
             "change_label": None,
         }
 
+        # Text-only guidance has no numeric comparison context.
         if cand.get("unit") == "text":
             return out
 
-        new_low, new_high = cand["value_low"], cand["value_high"]
-        new_mid = _mid(new_low, new_high)
-        new_width = new_high - new_low
+        new_low = cand.get("value_low")
+        new_high = cand.get("value_high")
+        if not (_is_num(new_low) and _is_num(new_high)):
+            return out
+        # Explicitly cast after numeric check to satisfy static analyzers
+        new_low_f = float(new_low)  # type: ignore[arg-type]
+        new_high_f = float(new_high)  # type: ignore[arg-type]
+        new_mid = _mid(new_low_f, new_high_f)
+        new_width = new_high_f - new_low_f
         out["new_mid"], out["new_width"] = new_mid, new_width
 
-        if not prior:
-            return out
-        if prior.get("unit") != cand.get("unit"):
+        # No prior or mismatched unit → treat as initiation, no deltas.
+        if not prior or prior.get("unit") != cand.get("unit"):
             return out
 
-        old_low, old_high = prior.get("value_low"), prior.get("value_high")
+        old_low = prior.get("value_low")
+        old_high = prior.get("value_high")
         if not (_is_num(old_low) and _is_num(old_high)):
             return out
-
-        old_mid = _mid(old_low, old_high)
-        old_width = old_high - old_low
+        old_low_f = float(old_low)  # type: ignore[arg-type]
+        old_high_f = float(old_high)  # type: ignore[arg-type]
+        old_mid = _mid(old_low_f, old_high_f)
+        old_width = old_high_f - old_low_f
         out.update({
             "old_low": old_low, "old_high": old_high,
             "old_mid": old_mid, "old_width": old_width,
@@ -3177,7 +3230,7 @@ class GuidanceChangePlugin(EventPlugin):
 
         if cand["unit"] == "pct":
             out["delta_pp"] = new_mid - old_mid
-        else:  # ccy
+        else:  # currency level
             out["delta_pct"] = math.inf if old_mid == 0 else (new_mid - old_mid) / abs(old_mid) * 100.0
 
         return out
@@ -3336,32 +3389,9 @@ class GuidanceChangePlugin(EventPlugin):
             "details_json": json.dumps(details),
         }
         # --- New: audit row with full cleaned text for external validation file ---
-        audit_row = {
-            "event_id": event_id,
-            "event_key": "guidance_change",
-            "company_id": cand["company_id"],
-            "doc_id": doc.get("doc_id"),
-            "cluster_id": doc.get("cluster_id"),
-            "published_utc": doc.get("published_utc"),
-            "source_type": doc.get("source_type"),
-            "source_url": doc.get("source_url"),
-            "metric": cand.get("metric"),
-            "metric_kind": cand.get("metric_kind"),
-            "basis": cand.get("basis"),
-            "unit": cand.get("unit"),
-            "period": cand.get("period"),
-            "direction_hint": cand.get("direction_hint"),
-            "sig_score": float(score),
-            "is_significant": bool(is_sig),
-            "trigger_source": cand.get("_trigger_source"),
-            "trigger_label": cand.get("_trigger_label"),
-            "trigger_match": cand.get("_trigger_match"),
-            # the bits you want to eyeball:
-            "title_clean": doc["title_clean"],
-            "body_clean": doc["body_clean"],
-        }
-
-        return versions_row, event_row,audit_row
+        # Audit row removed from return to satisfy EventPlugin protocol.
+        # (If needed elsewhere, expose via separate method.)
+        return versions_row, event_row
 
 
 plugin = GuidanceChangePlugin()
