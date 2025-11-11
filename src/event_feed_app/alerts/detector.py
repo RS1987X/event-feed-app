@@ -89,13 +89,15 @@ class GuidanceAlertDetector:
         return alerts
     
     def _process_document(self, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Process a single document and return 0+ alerts."""
-        alerts = []
+        """
+        Process a single document and return alerts.
         
-        # Normalize document format for plugin
+        NOTE: This now aggregates all candidates from the same document into ONE alert
+        to prevent spam. Each alert contains multiple guidance_items.
+        """
+        # Normalize for plugin
         normalized_doc = self._normalize_doc_for_plugin(doc)
         
-        # Debug: Log first doc to verify fields
         if not hasattr(self, '_logged_first_doc'):
             self._logged_first_doc = True
             logger.info(f"[DEBUG] First doc keys: {list(doc.keys())[:15]}")
@@ -117,6 +119,10 @@ class GuidanceAlertDetector:
                        f"rule_type={candidates[0].get('_rule_type')}")
         
         logger.debug(f"Found {len(candidates)} guidance candidates in {doc.get('press_release_id')}")
+        
+        # Collect all significant guidance items for this document
+        guidance_items = []
+        max_score = 0.0
         
         for cand in candidates:
             # Normalize candidate
@@ -146,21 +152,29 @@ class GuidanceAlertDetector:
                 f"threshold={self.min_significance}"
             )
             
-            # Emit alert if significant enough OR if config requests alerting all guidance commentary
+            # Collect significant guidance items
             if (is_sig and score >= self.min_significance) or self.config.get("alert_all_guidance", False):
-                # Build alert object
-                alert = self._build_alert(doc, normalized_doc, norm_cand, comparison, score, features)
-                alerts.append(alert)
+                guidance_items.append({
+                    "candidate": norm_cand,
+                    "comparison": comparison,
+                    "score": score,
+                    "features": features
+                })
+                max_score = max(max_score, score)
                 
                 # Update prior state for future comparisons
                 self._save_prior_state(prior_key, norm_cand)
-                
-                logger.info(
-                    f"Alert generated: {alert['alert_id']} for {alert.get('company_name', 'unknown')} "
-                    f"(score={score:.3f})"
-                )
         
-        return alerts
+        # If we have any significant guidance, create ONE aggregated alert for this document
+        if guidance_items:
+            alert = self._build_aggregated_alert(doc, normalized_doc, guidance_items, max_score)
+            logger.info(
+                f"Alert generated: {alert['alert_id']} for {alert.get('company_name', 'unknown')} "
+                f"with {len(guidance_items)} guidance items (max_score={max_score:.3f})"
+            )
+            return [alert]
+        
+        return []
     
     def _normalize_doc_for_plugin(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -234,6 +248,81 @@ class GuidanceAlertDetector:
                 "features": features,  # Debug info
             }
         }
+    
+    def _build_aggregated_alert(
+        self,
+        orig_doc: Dict[str, Any],
+        normalized_doc: Dict[str, Any],
+        guidance_items: List[Dict[str, Any]],
+        max_score: float
+    ) -> Dict[str, Any]:
+        """
+        Build a single alert object aggregating multiple guidance candidates.
+        
+        Args:
+            orig_doc: Original document dict
+            normalized_doc: Normalized document for plugin
+            guidance_items: List of dicts with keys: candidate, comparison, score, features
+            max_score: Highest score among all candidates
+        
+        Returns:
+            Single alert object with multiple guidance items
+        """
+        # Generate unique alert ID based on document
+        alert_id = hashlib.sha256(
+            f"{orig_doc.get('press_release_id')}_{datetime.now(timezone.utc).isoformat()}".encode()
+        ).hexdigest()[:16]
+        
+        # Extract company information (from first item, should be same for all)
+        company_name = (
+            orig_doc.get("company_name") or 
+            normalized_doc.get("company_name") or 
+            guidance_items[0]["candidate"].get("company_name") or 
+            "Unknown Company"
+        )
+        
+        # Build aggregated metrics list
+        all_metrics = []
+        all_summaries = []
+        
+        for item in guidance_items:
+            candidate = item["candidate"]
+            comparison = item["comparison"]
+            
+            # Generate summary for this item
+            summary = self._generate_summary(candidate, comparison)
+            all_summaries.append(summary)
+            
+            # Extract metrics
+            metrics = self._extract_metrics(candidate, comparison)
+            all_metrics.extend(metrics)
+        
+        # Create combined summary
+        if len(guidance_items) == 1:
+            combined_summary = all_summaries[0]
+        else:
+            combined_summary = f"{len(guidance_items)} guidance updates: " + "; ".join(all_summaries[:3])
+            if len(all_summaries) > 3:
+                combined_summary += f" ... and {len(all_summaries) - 3} more"
+        
+        return {
+            "alert_id": alert_id,
+            "event_id": orig_doc.get("press_release_id") or orig_doc.get("id"),
+            "alert_type": "guidance_change",
+            "company_name": company_name,
+            "detected_at": datetime.now(timezone.utc).isoformat(),
+            "significance_score": round(max_score, 3),
+            "summary": combined_summary,
+            "metrics": all_metrics,  # All metrics from all candidates
+            "guidance_count": len(guidance_items),  # NEW: how many guidance items
+            "metadata": {
+                "press_release_url": orig_doc.get("source_url") or orig_doc.get("url") or orig_doc.get("link"),
+                "release_date": orig_doc.get("release_date") or orig_doc.get("timestamp"),
+                "period": guidance_items[0]["candidate"].get("period") or normalized_doc.get("period_doc"),
+                "guidance_items": guidance_items,  # Full detail for each item
+            }
+        }
+
     
     def _generate_summary(self, candidate: Dict[str, Any], comparison: Dict[str, Any]) -> str:
         """Generate human-readable summary of guidance change."""

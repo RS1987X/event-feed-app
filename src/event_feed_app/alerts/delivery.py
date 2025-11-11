@@ -345,15 +345,24 @@ class AlertDelivery:
         
         Telegram supports: *bold*, _italic_, [links](url), `code`
         """
+        # Header with company name
         lines = [
             f"🔔 *{alert.get('company_name', 'Company')} - Guidance Alert*",
             "",
         ]
         
+        # Show guidance count if multiple
+        guidance_count = alert.get("guidance_count", 1)
+        if guidance_count > 1:
+            lines.append(f"_{guidance_count} guidance updates detected_")
+            lines.append("")
+        
         # Add metrics with emoji indicators
         metrics = alert.get("metrics", [])
         if metrics:
-            for metric in metrics:
+            # Limit to first 5 metrics to avoid message size limits
+            display_metrics = metrics[:5]
+            for metric in display_metrics:
                 direction = metric.get("direction")
                 if direction == "up":
                     emoji = "📈"
@@ -366,6 +375,9 @@ class AlertDelivery:
                 value_str = self._format_metric_value(metric)
                 
                 lines.append(f"{emoji} *{metric_name}*: {value_str}")
+            
+            if len(metrics) > 5:
+                lines.append(f"_...and {len(metrics) - 5} more metrics_")
         else:
             lines.append(f"• _{alert.get('summary', 'Guidance updated')}_")
         
@@ -378,6 +390,12 @@ class AlertDelivery:
         score = int(alert.get("significance_score", 0) * 100)
         lines.append(f"⭐ Significance: *{score}/100*")
         
+        # Add clickable link to press release (NEW!)
+        press_release_url = alert.get("metadata", {}).get("press_release_url")
+        if press_release_url:
+            lines.append(f"\n🔗 [View Press Release]({press_release_url})")
+        
+        return "\n".join(lines)
         # Add link
         press_release_url = alert.get("metadata", {}).get("press_release_url")
         if press_release_url:

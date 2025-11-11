@@ -9,6 +9,12 @@ src/event_feed_app.egg-info/dependency_links.txt
 src/event_feed_app.egg-info/entry_points.txt
 src/event_feed_app.egg-info/requires.txt
 src/event_feed_app.egg-info/top_level.txt
+src/event_feed_app/alerts/__init__.py
+src/event_feed_app/alerts/deduplicator.py
+src/event_feed_app/alerts/delivery.py
+src/event_feed_app/alerts/detector.py
+src/event_feed_app/alerts/orchestration.py
+src/event_feed_app/alerts/store.py
 src/event_feed_app/configs/pipeline_utils.py
 src/event_feed_app/configs/kwex/kwex_utils.py
 src/event_feed_app/data/__init__.py
@@ -19,6 +25,7 @@ src/event_feed_app/events/base.py
 src/event_feed_app/events/registry.py
 src/event_feed_app/events/guidance_change/guidance_change.py
 src/event_feed_app/events/guidance_change/plugin.py
+src/event_feed_app/events/guidance_change/plugin2.py
 src/event_feed_app/gating/__init__.py
 src/event_feed_app/gating/abstain_other_gate.py
 src/event_feed_app/gating/housekeeping_gate.py
