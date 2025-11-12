@@ -4,16 +4,17 @@
 set -e
 
 # Configuration
-PROJECT_ID="event-feed-app"  # Replace with your GCP project ID
+PROJECT_ID="event-feed-app-463206"
 SERVICE_NAME="pr-viewer"
-REGION="us-central1"
+REGION="europe-north1"  # Finland - closest to Sweden
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 echo "🚀 Deploying Press Release Viewer to Cloud Run..."
 
 # Step 1: Build container image
 echo "📦 Building Docker image..."
-gcloud builds submit --tag ${IMAGE_NAME} -f Dockerfile.viewer .
+docker build -t ${IMAGE_NAME} -f Dockerfile.viewer .
+docker push ${IMAGE_NAME}
 
 # Step 2: Deploy to Cloud Run
 echo "☁️ Deploying to Cloud Run..."

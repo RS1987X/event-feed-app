@@ -1,6 +1,7 @@
 # ignore local venv, bytecode, editor temp files…
 **/__pycache__/
 .venv/
+venv/
 /.dvc/cache/
 /.dvc/tmp/
 /*.pyc
@@ -8,3 +9,31 @@
 sa-key.json
 token.json
 credentials.json
+
+# Large data files
+*.csv
+*.parquet
+*.jsonl
+data/
+outputs/
+eval_outputs/
+unsup_clusters/
+*.ftz
+lid.176.ftz
+models/
+
+# Git
+.git
+
+# IDE
+.vscode
+.idea
+
+# Docs
+docs/
+*.md
+
+# Tests
+tests/
+test_*.py
+
