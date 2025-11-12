@@ -99,10 +99,26 @@ class AlertStore:
                 )
             """)
             
+            # New table: alert_feedback
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS alert_feedback (
+                    feedback_id     TEXT    PRIMARY KEY,
+                    alert_id        TEXT    NOT NULL,
+                    user_id         TEXT    NOT NULL,
+                    is_correct      INTEGER NOT NULL,  -- 1=correct, 0=incorrect
+                    feedback_type   TEXT,              -- 'true_positive', 'false_positive', etc.
+                    notes           TEXT,
+                    submitted_at    TEXT    NOT NULL,
+                    FOREIGN KEY (alert_id) REFERENCES alerts(alert_id)
+                )
+            """)
+            
             # Indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_company ON alerts(company_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_deliveries_alert ON alert_deliveries(alert_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_alert ON alert_feedback(alert_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_user ON alert_feedback(user_id)")
 
             # ---- Lightweight migrations (add columns if missing) ----
             try:
@@ -344,6 +360,108 @@ class AlertStore:
         
         except Exception as e:
             logger.error(f"Failed to save user preferences: {e}", exc_info=True)
+    
+    def save_feedback(self, alert_id: str, user_id: str, is_correct: bool, 
+                     feedback_type: str | None = None, notes: str | None = None) -> bool:
+        """
+        Save user feedback for an alert.
+        
+        Args:
+            alert_id: Alert ID being rated
+            user_id: User submitting feedback
+            is_correct: True if alert was correct, False if incorrect
+            feedback_type: Optional classification (e.g., 'true_positive', 'false_positive')
+            notes: Optional free-text notes
+            
+        Returns:
+            True if saved successfully
+        """
+        try:
+            import uuid
+            from datetime import datetime, timezone
+            
+            feedback_id = f"fb_{uuid.uuid4().hex[:12]}"
+            now = datetime.now(timezone.utc).isoformat()
+            
+            # Auto-detect feedback_type if not provided
+            if feedback_type is None:
+                feedback_type = "true_positive" if is_correct else "false_positive"
+            
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO alert_feedback (
+                        feedback_id, alert_id, user_id, is_correct, 
+                        feedback_type, notes, submitted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    feedback_id, alert_id, user_id, 
+                    int(is_correct), feedback_type, notes, now
+                ))
+            
+            logger.info(f"Saved feedback {feedback_id} for alert {alert_id}: {feedback_type}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save feedback for alert {alert_id}: {e}", exc_info=True)
+            return False
+    
+    def get_feedback_for_alert(self, alert_id: str) -> List[Dict[str, Any]]:
+        """Get all feedback entries for a specific alert."""
+        feedback = []
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.execute("""
+                    SELECT * FROM alert_feedback 
+                    WHERE alert_id = ? 
+                    ORDER BY submitted_at DESC
+                """, (alert_id,))
+                
+                for row in cur.fetchall():
+                    feedback.append(dict(row))
+                    
+        except Exception as e:
+            logger.error(f"Failed to get feedback for alert {alert_id}: {e}", exc_info=True)
+        
+        return feedback
+    
+    def get_feedback_stats(self) -> Dict[str, Any]:
+        """Get aggregated feedback statistics."""
+        stats = {
+            "total_feedback": 0,
+            "correct": 0,
+            "incorrect": 0,
+            "accuracy": 0.0,
+            "by_type": {}
+        }
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cur = conn.execute("SELECT COUNT(*) FROM alert_feedback")
+                stats["total_feedback"] = cur.fetchone()[0]
+                
+                cur = conn.execute("SELECT COUNT(*) FROM alert_feedback WHERE is_correct = 1")
+                stats["correct"] = cur.fetchone()[0]
+                
+                cur = conn.execute("SELECT COUNT(*) FROM alert_feedback WHERE is_correct = 0")
+                stats["incorrect"] = cur.fetchone()[0]
+                
+                if stats["total_feedback"] > 0:
+                    stats["accuracy"] = stats["correct"] / stats["total_feedback"]
+                
+                # By type
+                cur = conn.execute("""
+                    SELECT feedback_type, COUNT(*) as count 
+                    FROM alert_feedback 
+                    GROUP BY feedback_type
+                """)
+                stats["by_type"] = {row[0]: row[1] for row in cur.fetchall()}
+                
+        except Exception as e:
+            logger.error(f"Failed to get feedback stats: {e}", exc_info=True)
+        
+        return stats
     
     def get_all_active_users(self) -> List[Dict[str, Any]]:
         """Get all active users with their preferences."""

@@ -4,6 +4,7 @@
 Alert delivery system supporting multiple channels (email, webhook, Telegram, GUI).
 """
 from __future__ import annotations
+import os
 import smtplib
 import requests
 import logging
@@ -11,8 +12,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from .store import AlertStore
+from .alert_payload_store import AlertPayloadStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,7 @@ class AlertDelivery:
         self.smtp_config = smtp_config or {}
         self.telegram_config = telegram_config or {}
         self.store = store or AlertStore()
+        self.payload_store = AlertPayloadStore()
         self.templates_dir = templates_dir or Path(__file__).parent / "templates"
     
     def deliver(self, alert: Dict[str, Any], users: List[Dict[str, Any]]):
@@ -68,6 +72,9 @@ class AlertDelivery:
         if not users:
             logger.warning(f"No users to deliver alert {alert['alert_id']} to")
             return
+        
+        # Save alert payload to GCS for feedback reference
+        self.payload_store.save_alert_payload(alert)
         
         logger.info(f"Delivering alert {alert['alert_id']} to {len(users)} users")
         
@@ -410,12 +417,30 @@ class AlertDelivery:
         press_release_url = alert.get("metadata", {}).get("press_release_url")
         snippet = alert.get("metadata", {}).get("body_snippet")
         include_snippet = self.telegram_config.get("include_snippet_when_no_url", True)
+        
         if press_release_url:
+            # Include alert_id and signal_type for feedback tracking if URL supports it
+            alert_id = alert.get("alert_id", "")
+            signal_type = alert.get("alert_type", "guidance_change")
+            viewer_base = os.getenv("VIEWER_BASE_URL", "")
+            
+            # If press_release_url is our viewer, add alert_id and signal_type to query params
+            if viewer_base and press_release_url.startswith(viewer_base):
+                parsed = urlparse(press_release_url)
+                query_params = parse_qs(parsed.query)
+                query_params["alert_id"] = [alert_id]
+                query_params["signal_type"] = [signal_type]
+                new_query = urlencode(query_params, doseq=True)
+                press_release_url = urlunparse((
+                    parsed.scheme, parsed.netloc, parsed.path,
+                    parsed.params, new_query, parsed.fragment
+                ))
+            
             safe_url = _escape_md(press_release_url)
             lines.append(f"\n🔗 View Press Release:\n{safe_url}")
         elif include_snippet and snippet:
             safe_snippet = _escape_md(snippet)
-            lines.append(f"\n� Snippet:\n{safe_snippet}")
+            lines.append(f"\n📄 Snippet:\n{safe_snippet}")
 
         # Always include the event id so the user can look it up with local tools
         event_id = alert.get("event_id")

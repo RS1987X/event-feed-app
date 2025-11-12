@@ -84,15 +84,18 @@ class GuidanceAlertDetector:
         if base and doc_id:
             return f"{base.rstrip('/')}/{doc_id}"
         
-        # Final synthetic fallback: review app route with press_release_id
-        # This provides a stable, clickable link even if review UI not yet deployed
+        # Final synthetic fallback: configurable viewer URL
+        # Options:
+        #   1. Local network: http://192.168.1.100:8501 (set via VIEWER_BASE_URL)
+        #   2. Ngrok tunnel: https://abc123.ngrok.io (temporary public URL)
+        #   3. Cloud deployment: https://your-app.run.app (permanent)
+        # Start viewer: streamlit run scripts/view_pr_web.py --server.address 0.0.0.0
         if doc_id:
-            return f"https://review.internal/press-release/{doc_id}"
+            viewer_base = os.getenv("VIEWER_BASE_URL", "http://localhost:8501")
+            return f"{viewer_base.rstrip('/')}/?id={doc_id}"
         
-        # Last resort: search by title
-        title = (orig_doc.get("title_clean") or orig_doc.get("title") or normalized_doc.get("title") or "press release").strip()
-        q = quote_plus(title[:120])
-        return f"https://review.internal/search?q={q}"
+        # Last resort: provide manual lookup instruction
+        return f"View with: python scripts/view_press_releases.py --id {doc_id or 'UNKNOWN'}"
     
     def detect_alerts(self, docs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -335,6 +338,9 @@ class GuidanceAlertDetector:
         all_metrics = []
         all_summaries = []
         
+        # Build detailed guidance items for viewer
+        detailed_guidance_items = []
+        
         for item in guidance_items:
             candidate = item["candidate"]
             comparison = item["comparison"]
@@ -346,6 +352,17 @@ class GuidanceAlertDetector:
             # Extract metrics
             metrics = self._extract_metrics(candidate, comparison)
             all_metrics.extend(metrics)
+            
+            # Build detailed item for viewer display
+            detailed_item = {
+                "metric": candidate.get("metric") or "unknown",
+                "direction": comparison.get("direction") or "unknown",
+                "period": candidate.get("period") or "UNKNOWN",
+                "value_str": self._format_value_change(candidate, comparison),
+                "confidence": item.get("score", 0.0),
+                "text_snippet": candidate.get("snippet") or candidate.get("text") or ""
+            }
+            detailed_guidance_items.append(detailed_item)
         
         # Create combined summary
         if len(guidance_items) == 1:
@@ -364,13 +381,13 @@ class GuidanceAlertDetector:
             "significance_score": round(max_score, 3),
             "summary": combined_summary,
             "metrics": all_metrics,  # All metrics from all candidates
-            "guidance_count": len(guidance_items),  # NEW: how many guidance items
+            "guidance_count": len(guidance_items),
+            "guidance_items": detailed_guidance_items,  # Structured items for viewer
             "metadata": {
                 # Robust URL resolution (with fallback to config/env base URL)
                 "press_release_url": self._resolve_press_release_url(orig_doc, normalized_doc),
                 "release_date": orig_doc.get("release_date") or orig_doc.get("timestamp"),
                 "period": guidance_items[0]["candidate"].get("period") or normalized_doc.get("period_doc"),
-                "guidance_items": guidance_items,  # Full detail for each item
                 # Helpful context when URL is missing
                 "title": normalized_doc.get("title", ""),
                 "body_snippet": self._extract_snippet(orig_doc, normalized_doc, max_chars=350),
@@ -466,6 +483,44 @@ class GuidanceAlertDetector:
             metrics.append(metric_entry)
         
         return metrics
+    
+    def _format_value_change(self, candidate: Dict[str, Any], comparison: Dict[str, Any]) -> str:
+        """Format a human-readable value change string from candidate/comparison."""
+        metrics = candidate.get("metrics") or []
+        if not metrics:
+            return ""
+        
+        # Use first metric for simplicity
+        metric_data = metrics[0]
+        value = metric_data.get("value")
+        value_range = metric_data.get("range")
+        unit = metric_data.get("unit", "")
+        
+        # Check for prior value in comparison
+        prior_value = None
+        change_pct = None
+        if comparison.get("changes"):
+            for change in comparison["changes"]:
+                if change.get("metric") == metric_data.get("metric"):
+                    prior_value = change.get("prior_value")
+                    change_pct = change.get("change_pct")
+                    break
+        
+        # Format: "prior → new (change%)" or just "new" or "range"
+        parts = []
+        if prior_value is not None:
+            parts.append(f"{prior_value}{unit}")
+            parts.append("→")
+        
+        if value_range:
+            parts.append(f"{value_range[0]}-{value_range[1]}{unit}")
+        elif value is not None:
+            parts.append(f"{value}{unit}")
+        
+        if change_pct is not None:
+            parts.append(f"({change_pct:+.0f}%)")
+        
+        return " ".join(parts) if parts else "N/A"
     
     def _generate_alert_id(self, doc: Dict[str, Any], candidate: Dict[str, Any]) -> str:
         """Generate unique alert ID."""
