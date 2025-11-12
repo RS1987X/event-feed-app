@@ -59,49 +59,64 @@ logger = logging.getLogger(__name__)
 
 def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000, source: Optional[str] = None) -> pd.DataFrame:
     """
-    Fetch press releases from GCS silver bucket using existing utilities.
+    Fetch press releases from GCS silver bucket.
+    
+    Fast approach: Load from source partition, sort by date, take latest N rows.
     
     Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+        start_date: Start date in YYYY-MM-DD format (ignored if max_rows is small)
+        end_date: End date in YYYY-MM-DD format (ignored if max_rows is small)
         max_rows: Maximum number of rows to fetch
         source: Optional source filter ('gmail', 'globenewswire', etc.)
     
     Returns:
         DataFrame with press releases
     """
-    logger.info(f"Fetching data from GCS: {start_date} to {end_date}, source={source or 'all'}")
+    logger.info(f"Fetching latest {max_rows} press releases from GCS, source={source or 'all'}")
     
     try:
-        # Use the existing load_from_gcs utility
+        import gcsfs
+        import pyarrow.dataset as ds
+        import pyarrow.compute as pc
+        
         cfg = Settings()
         base_path = cfg.gcs_silver_root
         
         # If source specified, append partition path
         if source:
             gcs_path = f"{base_path}/source={source}"
-            logger.info(f"Loading from partition: {gcs_path}")
         else:
             gcs_path = base_path
-            logger.info(f"Loading from: {gcs_path}")
         
-        # Load all data from GCS (the utility handles schema automatically)
-        df = load_from_gcs(gcs_path)
+        logger.info(f"Loading from: {gcs_path}")
+        
+        fs = gcsfs.GCSFileSystem()
+        
+        # Strategy: Load entire source (uses caching), then filter in pandas
+        # This is faster than scanning partitions when max_rows is small
+        dataset = ds.dataset(gcs_path, filesystem=fs, format="parquet")
+        
+        # Read all data - Parquet is columnar and compressed, so this is fast
+        logger.info("Reading data from GCS...")
+        table = dataset.to_table()
+        df = table.to_pandas()
         
         logger.info(f"Loaded {len(df)} total records from GCS")
         
-        # Filter by date range
+        # Sort by release_date descending and take latest N
         if 'release_date' in df.columns:
-            df['release_date'] = pd.to_datetime(df['release_date']).dt.strftime('%Y-%m-%d')
-            mask = (df['release_date'] >= start_date) & (df['release_date'] <= end_date)
-            df_filtered: pd.DataFrame = df[mask].copy()  # type: ignore
-            df = df_filtered
-            logger.info(f"Filtered to {len(df)} records in date range")
+            df['release_date'] = pd.to_datetime(df['release_date'])
+            df = df.sort_values('release_date', ascending=False)
+            logger.info(f"Sorted by release_date, latest date: {df['release_date'].iloc[0]}")
         
+        # Take only max_rows
         if len(df) > max_rows:
-            logger.warning(f"Limiting results to {max_rows} rows (found {len(df)})")
-            df_limited: pd.DataFrame = df.head(max_rows).copy()  # type: ignore
-            df = df_limited
+            df = df.head(max_rows).copy()
+            logger.info(f"Limited to {max_rows} most recent press releases")
+        
+        # Convert release_date back to string for consistency
+        if 'release_date' in df.columns:
+            df['release_date'] = df['release_date'].dt.strftime('%Y-%m-%d')
         
         logger.info(f"✓ Fetched {len(df)} press releases from GCS")
         return df

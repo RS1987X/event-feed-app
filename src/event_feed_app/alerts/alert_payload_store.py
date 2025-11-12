@@ -75,11 +75,20 @@ class AlertPayloadStore:
             file_path = f"{self.payload_root}/signal_type={signal_type}/{date_str}.jsonl"
             
             # Write as newline-delimited JSON
+            # Note: gcsfs doesn't support true append mode, so we need to read-modify-write
             fs = gcsfs.GCSFileSystem()
             line = json.dumps(alert) + "\n"
             
-            # Append mode
-            with fs.open(file_path, "a") as f:
+            # Read existing content if file exists
+            existing_content = ""
+            if fs.exists(file_path):
+                with fs.open(file_path, "r") as f:
+                    content = f.read()
+                    existing_content = content if isinstance(content, str) else content.decode("utf-8")
+            
+            # Write existing + new content
+            with fs.open(file_path, "w") as f:
+                f.write(existing_content)
                 f.write(line)
             
             logger.info(f"Saved alert payload {alert_id} to {file_path}")
