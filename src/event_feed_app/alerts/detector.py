@@ -7,7 +7,9 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Sequence
+import os
+from urllib.parse import quote_plus
 
 from event_feed_app.events.registry import get_plugin
 from .store import AlertStore
@@ -47,13 +49,57 @@ class GuidanceAlertDetector:
             # Type: ignore because EventPlugin protocol doesn't define configure
             # but GuidanceChangePlugin has it
             self.guidance_plugin.configure(self.config["guidance_plugin_config"])  # type: ignore
+
+    def _resolve_press_release_url(self, orig_doc: Dict[str, Any], normalized_doc: Dict[str, Any]) -> str:
+        """Best-effort URL resolution with configurable fallback.
+        Priority:
+          1) normalized_doc.source_url (if non-empty)
+          2) orig_doc.source_url | url | link (if non-empty)
+          3) config.document_base_url + "/" + press_release_id
+          4) env DOCUMENT_BASE_URL + "/" + press_release_id
+          5) Synthetic review URL using press_release_id (always present)
+        
+        Note: Source documents from Gmail have empty source_url, so fallback is needed.
+        """
+        # Check for existing URL (must be non-empty)
+        url = (
+            normalized_doc.get("source_url")
+            or orig_doc.get("source_url")
+            or orig_doc.get("url")
+            or orig_doc.get("link")
+            or ""
+        ).strip()
+        
+        if url:
+            return url
+        
+        # Get document identifier
+        doc_id = orig_doc.get("press_release_id") or orig_doc.get("id") or ""
+        
+        # Try configured base URL
+        base = (self.config.get("document_base_url")
+                or os.getenv("DOCUMENT_BASE_URL")
+                or "").strip()
+        
+        if base and doc_id:
+            return f"{base.rstrip('/')}/{doc_id}"
+        
+        # Final synthetic fallback: review app route with press_release_id
+        # This provides a stable, clickable link even if review UI not yet deployed
+        if doc_id:
+            return f"https://review.internal/press-release/{doc_id}"
+        
+        # Last resort: search by title
+        title = (orig_doc.get("title_clean") or orig_doc.get("title") or normalized_doc.get("title") or "press release").strip()
+        q = quote_plus(title[:120])
+        return f"https://review.internal/search?q={q}"
     
-    def detect_alerts(self, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def detect_alerts(self, docs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Process documents and return alert-worthy guidance changes.
         
         Args:
-            docs: List of normalized documents (from Silver layer or orchestrator output)
+            docs: Sequence of normalized documents (from Silver layer or orchestrator output)
                   Expected fields: press_release_id, title_clean, full_text_clean, 
                   release_date, company_name (optional)
         
@@ -240,12 +286,16 @@ class GuidanceAlertDetector:
             "summary": summary,
             "metrics": metrics,
             "metadata": {
-                "press_release_url": orig_doc.get("source_url") or orig_doc.get("url") or orig_doc.get("link"),
+                # Robust URL resolution (with fallback to config/env base URL)
+                "press_release_url": self._resolve_press_release_url(orig_doc, normalized_doc),
                 "release_date": orig_doc.get("release_date") or orig_doc.get("timestamp"),
                 "direction": comparison.get("direction"),
                 "change_magnitude": comparison.get("magnitude"),
                 "period": candidate.get("period") or normalized_doc.get("period_doc"),
                 "features": features,  # Debug info
+                # Helpful context when URL is missing
+                "title": normalized_doc.get("title", ""),
+                "body_snippet": self._extract_snippet(orig_doc, normalized_doc, max_chars=350),
             }
         }
     
@@ -316,12 +366,47 @@ class GuidanceAlertDetector:
             "metrics": all_metrics,  # All metrics from all candidates
             "guidance_count": len(guidance_items),  # NEW: how many guidance items
             "metadata": {
-                "press_release_url": orig_doc.get("source_url") or orig_doc.get("url") or orig_doc.get("link"),
+                # Robust URL resolution (with fallback to config/env base URL)
+                "press_release_url": self._resolve_press_release_url(orig_doc, normalized_doc),
                 "release_date": orig_doc.get("release_date") or orig_doc.get("timestamp"),
                 "period": guidance_items[0]["candidate"].get("period") or normalized_doc.get("period_doc"),
                 "guidance_items": guidance_items,  # Full detail for each item
+                # Helpful context when URL is missing
+                "title": normalized_doc.get("title", ""),
+                "body_snippet": self._extract_snippet(orig_doc, normalized_doc, max_chars=350),
             }
         }
+
+    def _extract_snippet(self, orig_doc: Dict[str, Any], normalized_doc: Dict[str, Any], max_chars: int = 350) -> str:
+        """Extract a short, readable snippet from the document body.
+        Prefers cleaned text. Returns at most max_chars, trimmed at a word boundary.
+        """
+        body = (
+            normalized_doc.get("body")
+            or orig_doc.get("full_text_clean")
+            or orig_doc.get("full_text")
+            or ""
+        )
+        if not isinstance(body, str) or not body.strip():
+            return ""
+        text = body.strip()
+        # Use first non-empty paragraph
+        paras = [p.strip() for p in text.splitlines() if p.strip()]
+        if not paras:
+            return ""
+        first = paras[0]
+        # Collapse excessive spaces
+        first = " ".join(first.split())
+        if len(first) <= max_chars:
+            return first
+        # Trim to nearest word boundary within max_chars
+        cut = first[:max_chars]
+        # try to cut at the last period or space
+        for sep in [". ", ".", " "]:
+            idx = cut.rfind(sep)
+            if idx >= max(40, int(0.6 * max_chars)):
+                return cut[:idx+1].rstrip()
+        return cut.rstrip() + "…"
 
     
     def _generate_summary(self, candidate: Dict[str, Any], comparison: Dict[str, Any]) -> str:

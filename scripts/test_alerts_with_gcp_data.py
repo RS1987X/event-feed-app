@@ -202,7 +202,7 @@ def process_alerts(
         
         # Just detect, don't deliver (single batch call for clearer logging)
         docs = df.to_dict("records")
-        alerts = orchestrator.detector.detect_alerts(docs)
+        alerts = orchestrator.detector.detect_alerts(docs)  # type: ignore[arg-type]
         
         logger.info(f"✓ Detected {len(alerts)} alerts")
         
@@ -223,7 +223,7 @@ def process_alerts(
     else:
         # Full processing with delivery
         docs = df.to_dict("records")
-        stats = orchestrator.process_documents(docs)
+        stats = orchestrator.process_documents(docs)  # type: ignore[arg-type]
         
         logger.info(f"\n{'='*60}")
         logger.info("Alert Processing Results:")

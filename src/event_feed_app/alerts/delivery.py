@@ -345,6 +345,16 @@ class AlertDelivery:
         
         Telegram supports: *bold*, _italic_, [links](url), `code`
         """
+        def _escape_md(text: str) -> str:
+            if not isinstance(text, str):
+                return ""
+            # Minimal escaping for Telegram Markdown (not V2)
+            return (
+                text.replace("_", "\\_")
+                    .replace("*", "\\*")
+                    .replace("`", "\\`")
+                    .replace("[", "\\[")
+            )
         # Header with company name
         lines = [
             f"🔔 *{alert.get('company_name', 'Company')} - Guidance Alert*",
@@ -381,6 +391,12 @@ class AlertDelivery:
         else:
             lines.append(f"• _{alert.get('summary', 'Guidance updated')}_")
         
+        # Optional title
+        title = alert.get("metadata", {}).get("title")
+        if title:
+            lines.append(f"_“{_escape_md(title)}”_")
+            lines.append("")
+
         # Add period
         period = alert.get("metadata", {}).get("period")
         if period and period not in ("UNKNOWN", "PERIOD-UNKNOWN"):
@@ -390,16 +406,21 @@ class AlertDelivery:
         score = int(alert.get("significance_score", 0) * 100)
         lines.append(f"⭐ Significance: *{score}/100*")
         
-        # Add clickable link to press release (NEW!)
+        # Add press release link if available, else include a short snippet
         press_release_url = alert.get("metadata", {}).get("press_release_url")
+        snippet = alert.get("metadata", {}).get("body_snippet")
+        include_snippet = self.telegram_config.get("include_snippet_when_no_url", True)
         if press_release_url:
-            lines.append(f"\n🔗 [View Press Release]({press_release_url})")
-        
-        return "\n".join(lines)
-        # Add link
-        press_release_url = alert.get("metadata", {}).get("press_release_url")
-        if press_release_url:
-            lines.append(f"\n[📄 View Press Release]({press_release_url})")
+            safe_url = _escape_md(press_release_url)
+            lines.append(f"\n🔗 View Press Release:\n{safe_url}")
+        elif include_snippet and snippet:
+            safe_snippet = _escape_md(snippet)
+            lines.append(f"\n� Snippet:\n{safe_snippet}")
+
+        # Always include the event id so the user can look it up with local tools
+        event_id = alert.get("event_id")
+        if event_id:
+            lines.append(f"\n🆔 ID: `{event_id}`")
         
         return "\n".join(lines)
     

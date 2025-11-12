@@ -54,6 +54,7 @@ def get_chat_ids(bot_token: str, timeout: float = 12.0, retries: int = 2):
     """Fetch recent updates and print chat IDs."""
     url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
 
+    response = None  # Initialize to avoid unbound variable error
     try:
         last_exc = None
         for attempt in range(retries + 1):
@@ -67,6 +68,11 @@ def get_chat_ids(bot_token: str, timeout: float = 12.0, retries: int = 2):
                     time.sleep(1.0 * (attempt + 1))
                     continue
                 raise
+        
+        if response is None:
+            print("Failed to get response from Telegram API")
+            return
+        
         data = response.json()
 
         if not data.get("ok"):

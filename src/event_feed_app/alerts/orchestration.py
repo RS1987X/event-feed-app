@@ -5,7 +5,7 @@ Alert orchestration - integrates detection, deduplication, and delivery.
 """
 from __future__ import annotations
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Sequence
 
 from .detector import GuidanceAlertDetector
 from .deduplicator import AlertDeduplicator
@@ -72,12 +72,12 @@ class AlertOrchestrator:
             store=self.store
         )
     
-    def process_documents(self, docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def process_documents(self, docs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Process documents and generate/deliver alerts.
         
         Args:
-            docs: List of normalized documents to process
+            docs: Sequence of normalized documents to process
         
         Returns:
             Summary statistics dict

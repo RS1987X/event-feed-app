@@ -107,7 +107,7 @@ def main():
     
     logger.info(f"\nProcessing {len(df_guidance)} known guidance docs...")
     docs = df_guidance.to_dict("records")
-    stats = orchestrator.process_documents(docs)
+    stats = orchestrator.process_documents(docs)  # type: ignore[arg-type]
     
     logger.info("\n" + "="*60)
     logger.info("Results:")
