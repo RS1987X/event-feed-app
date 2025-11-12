@@ -413,34 +413,35 @@ class AlertDelivery:
         score = int(alert.get("significance_score", 0) * 100)
         lines.append(f"⭐ Significance: *{score}/100*")
         
-        # Add press release link if available, else include a short snippet
-        press_release_url = alert.get("metadata", {}).get("press_release_url")
-        snippet = alert.get("metadata", {}).get("body_snippet")
-        include_snippet = self.telegram_config.get("include_snippet_when_no_url", True)
+        # Build Streamlit viewer URL for feedback
+        viewer_base = os.getenv("VIEWER_BASE_URL", "")
+        press_release_id = alert.get("press_release_id", "")
+        alert_id = alert.get("alert_id", "")
+        signal_type = alert.get("alert_type", "guidance_change")
         
-        if press_release_url:
-            # Include alert_id and signal_type for feedback tracking if URL supports it
-            alert_id = alert.get("alert_id", "")
-            signal_type = alert.get("alert_type", "guidance_change")
-            viewer_base = os.getenv("VIEWER_BASE_URL", "")
+        if viewer_base and press_release_id:
+            # Always link to Streamlit viewer (which will show PR + feedback form + original source link)
+            query_params = {
+                "id": press_release_id,
+                "alert_id": alert_id,
+                "signal_type": signal_type
+            }
+            query_string = urlencode(query_params)
+            viewer_url = f"{viewer_base}?{query_string}"
+            safe_url = _escape_md(viewer_url)
+            lines.append(f"\n📱 View & Give Feedback:\n{safe_url}")
+        else:
+            # Fallback: Show original press release URL or snippet if viewer not configured
+            press_release_url = alert.get("metadata", {}).get("press_release_url")
+            snippet = alert.get("metadata", {}).get("body_snippet")
+            include_snippet = self.telegram_config.get("include_snippet_when_no_url", True)
             
-            # If press_release_url is our viewer, add alert_id and signal_type to query params
-            if viewer_base and press_release_url.startswith(viewer_base):
-                parsed = urlparse(press_release_url)
-                query_params = parse_qs(parsed.query)
-                query_params["alert_id"] = [alert_id]
-                query_params["signal_type"] = [signal_type]
-                new_query = urlencode(query_params, doseq=True)
-                press_release_url = urlunparse((
-                    parsed.scheme, parsed.netloc, parsed.path,
-                    parsed.params, new_query, parsed.fragment
-                ))
-            
-            safe_url = _escape_md(press_release_url)
-            lines.append(f"\n🔗 View Press Release:\n{safe_url}")
-        elif include_snippet and snippet:
-            safe_snippet = _escape_md(snippet)
-            lines.append(f"\n📄 Snippet:\n{safe_snippet}")
+            if press_release_url:
+                safe_url = _escape_md(press_release_url)
+                lines.append(f"\n🔗 View Press Release:\n{safe_url}")
+            elif include_snippet and snippet:
+                safe_snippet = _escape_md(snippet)
+                lines.append(f"\n📄 Snippet:\n{safe_snippet}")
 
         # Always include the event id so the user can look it up with local tools
         event_id = alert.get("event_id")

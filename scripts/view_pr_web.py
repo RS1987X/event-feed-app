@@ -83,8 +83,11 @@ with col3:
     if category:
         st.metric("Category", category)
 
+# Prominent link to original press release
 if source_url:
-    st.markdown(f"**Original Source:** [{source_url}]({source_url})")
+    st.info(f"🔗 **View Original Press Release:** [{source_url}]({source_url})")
+else:
+    st.warning("⚠️ Original source URL not available")
 
 st.markdown("---")
 
