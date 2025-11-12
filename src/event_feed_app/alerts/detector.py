@@ -388,9 +388,11 @@ class GuidanceAlertDetector:
                 "press_release_url": self._resolve_press_release_url(orig_doc, normalized_doc),
                 "release_date": orig_doc.get("release_date") or orig_doc.get("timestamp"),
                 "period": guidance_items[0]["candidate"].get("period") or normalized_doc.get("period_doc"),
-                # Helpful context when URL is missing
+                # Full content for viewer (so we don't need to query silver data)
                 "title": normalized_doc.get("title", ""),
-                "body_snippet": self._extract_snippet(orig_doc, normalized_doc, max_chars=350),
+                "body": normalized_doc.get("body", ""),  # Full text instead of snippet
+                "source": orig_doc.get("source", ""),
+                "category": orig_doc.get("l1_class") or orig_doc.get("category", ""),
             }
         }
 

@@ -35,41 +35,41 @@ st.set_page_config(page_title="Press Release Viewer", layout="wide")
 # Get parameters from URL
 params = st.query_params
 press_release_id = params.get("id", "")
-alert_id = params.get("alert_id", "")  # Optional: for feedback tracking
+alert_id = params.get("alert_id", "")
+signal_type = params.get("signal_type", "guidance_change")
 
-if not press_release_id:
+if not press_release_id or not alert_id:
     st.title("📄 Press Release Viewer")
-    st.info("To view a press release, add `?id=<press_release_id>` to the URL")
-    st.markdown("**Example:** `http://localhost:8501/?id=1980c93f9f819a6d`")
+    st.info("To view a press release, add `?id=<press_release_id>&alert_id=<alert_id>&signal_type=<type>` to the URL")
+    st.markdown("**Example:** `http://localhost:8501/?id=1980c93f9f819a6d&alert_id=abc123&signal_type=guidance_change`")
     st.markdown("---")
-    st.markdown("This viewer is used by the alert system when press releases don't have a source URL.")
+    st.markdown("This viewer is used by the alert system to display press releases with feedback forms.")
     st.stop()
 
-# Load data
+# Load alert payload (contains PR content) - MUCH faster than loading from silver data
 @st.cache_data(ttl=3600)
-def load_silver_data():
-    cfg = Settings()
-    return load_from_gcs(cfg.gcs_silver_root)
+def load_alert_payload(alert_id: str, signal_type: str):
+    """Load alert payload which includes the full PR content."""
+    store = AlertPayloadStore()
+    return store.get_alert_payload(alert_id, signal_type)
 
-with st.spinner("Loading press release data..."):
-    df = load_silver_data()
+with st.spinner("Loading alert details..."):
+    alert = load_alert_payload(alert_id, signal_type)
 
-# Filter to requested ID
-doc = df[df["press_release_id"] == press_release_id]
-
-if doc.empty:
-    st.error(f"❌ Press release not found: `{press_release_id}`")
-    st.info("Check that the ID is correct and the data has been synced from GCS.")
+if not alert:
+    st.error(f"❌ Alert not found: `{alert_id}`")
+    st.info("The alert may have expired or the ID is incorrect.")
     st.stop()
 
-# Extract document fields
-row = doc.iloc[0]
-title = row.get("title_clean") or row.get("title") or "Untitled"
-company = row.get("company_name") or "Unknown Company"
-release_date = row.get("release_date") or "Unknown Date"
-body = row.get("full_text_clean") or row.get("full_text") or ""
-source_url = row.get("source_url") or row.get("url") or row.get("link") or ""
-category = row.get("l1_class") or row.get("category") or ""
+# Extract fields from alert payload metadata
+metadata = alert.get("metadata", {})
+title = metadata.get("title", "Untitled")
+company = alert.get("company_name", "Unknown Company")
+release_date = metadata.get("release_date", "Unknown Date")
+body = metadata.get("body", "")  # Full content stored in alert payload
+source_url = metadata.get("press_release_url", "")
+category = metadata.get("category", "")
+source = metadata.get("source", "")
 
 # Display document
 st.title(f"📄 {title}")
@@ -102,115 +102,104 @@ if body:
 else:
     st.warning("No content available for this press release.")
 
-# Feedback section (only if alert_id is provided)
-if alert_id:
-    st.markdown("---")
+# Feedback section
+st.markdown("---")
+
+st.subheader("🔍 What the System Detected")
+
+# Display detected guidance items from alert
+guidance_items = alert.get("guidance_items", [])
+
+if guidance_items:
+    for idx, item in enumerate(guidance_items, 1):
+        with st.expander(f"Detection #{idx}: {item.get('metric', 'Unknown').upper()}", expanded=True):
+            col_a, col_b, col_c = st.columns(3)
+            
+            with col_a:
+                st.metric("Metric", item.get("metric", "N/A"))
+            with col_b:
+                direction = item.get("direction", "N/A")
+                direction_emoji = {"up": "📈", "down": "📉", "unchanged": "➡️"}.get(direction, "❓")
+                st.metric("Direction", f"{direction_emoji} {direction}")
+            with col_c:
+                st.metric("Period", item.get("period", "N/A"))
+            
+            if item.get("value_str"):
+                st.info(f"**Value:** {item['value_str']}")
+            
+            if item.get("text_snippet"):
+                st.markdown(f"**Text excerpt:**")
+                st.code(item["text_snippet"], language=None)
+            
+            if item.get("confidence"):
+                st.caption(f"Confidence: {item['confidence']*100:.0f}%")
+else:
+    st.info("No detailed guidance items available in alert payload")
+
+# Show overall alert metadata
+with st.expander("📊 Alert Metadata"):
+    st.json({
+        "alert_id": alert.get("alert_id"),
+        "company_name": alert.get("company_name"),
+        "significance_score": alert.get("significance_score"),
+        "detected_at": alert.get("detected_at"),
+        "guidance_count": len(guidance_items)
+    })
+
+st.markdown("---")
+st.subheader("🎯 Was This Detection Correct?")
+
+# Initialize FeedbackStore
+feedback_store = FeedbackStore()
+
+# Check for existing feedback
+existing_feedback = feedback_store.get_feedback_for_signal(
+    signal_type=signal_type,
+    signal_id=alert_id
+)
+
+if existing_feedback:
+    st.success(f"✅ You already submitted feedback for this alert")
+    for fb in existing_feedback:
+        feedback_label = "✅ Correct" if fb["is_correct"] else "❌ Incorrect"
+        st.info(f"{feedback_label} - {fb['feedback_type']} - {fb['submitted_at']}")
+        if fb.get("notes"):
+            st.caption(f"Note: {fb['notes']}")
+        if fb.get("metadata"):
+            with st.expander("📋 Feedback Details"):
+                st.json(fb["metadata"])
+else:
+    # Quick feedback buttons
+    st.markdown("**Quick Rating:**")
+    col1, col2 = st.columns(2)
     
-    # Load alert payload to show what system detected
-    payload_store = AlertPayloadStore()
-    signal_type = params.get("signal_type", "guidance_change")
+    # Use session state to track if detailed form should be shown
+    if "show_detailed_form" not in st.session_state:
+        st.session_state.show_detailed_form = False
     
-    alert_payload = payload_store.get_alert_payload(alert_id, signal_type)
+    with col1:
+        if st.button("✅ Correct Alert", use_container_width=True, type="primary"):
+            user_id = params.get("user_id", "anonymous")
+            
+            try:
+                feedback_id = feedback_store.save_feedback(
+                    signal_type=signal_type,
+                    signal_id=alert_id,
+                    press_release_id=press_release_id,
+                    user_id=user_id,
+                    is_correct=True
+                )
+                st.success(f"✅ Thank you! Feedback saved: {feedback_id}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to save feedback: {e}")
     
-    if alert_payload:
-        st.subheader("🔍 What the System Detected")
-        
-        # Display detected guidance items
-        guidance_items = alert_payload.get("guidance_items", [])
-        
-        if guidance_items:
-            for idx, item in enumerate(guidance_items, 1):
-                with st.expander(f"Detection #{idx}: {item.get('metric', 'Unknown').upper()}", expanded=True):
-                    col_a, col_b, col_c = st.columns(3)
-                    
-                    with col_a:
-                        st.metric("Metric", item.get("metric", "N/A"))
-                    with col_b:
-                        direction = item.get("direction", "N/A")
-                        direction_emoji = {"up": "📈", "down": "📉", "unchanged": "➡️"}.get(direction, "❓")
-                        st.metric("Direction", f"{direction_emoji} {direction}")
-                    with col_c:
-                        st.metric("Period", item.get("period", "N/A"))
-                    
-                    if item.get("value_str"):
-                        st.info(f"**Value:** {item['value_str']}")
-                    
-                    if item.get("text_snippet"):
-                        st.markdown(f"**Text excerpt:**")
-                        st.code(item["text_snippet"], language=None)
-                    
-                    if item.get("confidence"):
-                        st.caption(f"Confidence: {item['confidence']*100:.0f}%")
-        else:
-            st.info("No detailed guidance items available in alert payload")
-        
-        # Show overall alert metadata
-        with st.expander("📊 Alert Metadata"):
-            st.json({
-                "alert_id": alert_payload.get("alert_id"),
-                "company_name": alert_payload.get("company_name"),
-                "significance_score": alert_payload.get("significance_score"),
-                "detected_at": alert_payload.get("detected_at"),
-                "guidance_count": len(guidance_items)
-            })
-    else:
-        st.warning("⚠️ Alert detection details not available (payload not found in GCS)")
+    with col2:
+        if st.button("❌ Incorrect Alert", use_container_width=True):
+            st.session_state.show_detailed_form = True
     
-    st.markdown("---")
-    st.subheader("🎯 Was This Detection Correct?")
-    
-    # Initialize FeedbackStore
-    feedback_store = FeedbackStore()
-    signal_type = params.get("signal_type", "guidance_change")
-    
-    # Check for existing feedback
-    existing_feedback = feedback_store.get_feedback_for_signal(
-        signal_type=signal_type,
-        signal_id=alert_id
-    )
-    
-    if existing_feedback:
-        st.success(f"✅ You already submitted feedback for this alert")
-        for fb in existing_feedback:
-            feedback_label = "✅ Correct" if fb["is_correct"] else "❌ Incorrect"
-            st.info(f"{feedback_label} - {fb['feedback_type']} - {fb['submitted_at']}")
-            if fb.get("notes"):
-                st.caption(f"Note: {fb['notes']}")
-            if fb.get("metadata"):
-                with st.expander("📋 Feedback Details"):
-                    st.json(fb["metadata"])
-    else:
-        # Quick feedback buttons
-        st.markdown("**Quick Rating:**")
-        col1, col2 = st.columns(2)
-        
-        # Use session state to track if detailed form should be shown
-        if "show_detailed_form" not in st.session_state:
-            st.session_state.show_detailed_form = False
-        
-        with col1:
-            if st.button("✅ Correct Alert", use_container_width=True, type="primary"):
-                user_id = params.get("user_id", "anonymous")
-                
-                try:
-                    feedback_id = feedback_store.save_feedback(
-                        signal_type=signal_type,
-                        signal_id=alert_id,
-                        press_release_id=press_release_id,
-                        user_id=user_id,
-                        is_correct=True
-                    )
-                    st.success(f"✅ Thank you! Feedback saved: {feedback_id}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Failed to save feedback: {e}")
-        
-        with col2:
-            if st.button("❌ Incorrect Alert", use_container_width=True):
-                st.session_state.show_detailed_form = True
-        
-        # Detailed feedback form (shown when "Incorrect" is clicked)
-        if st.session_state.show_detailed_form:
+    # Detailed feedback form (shown when "Incorrect" is clicked)
+    if st.session_state.show_detailed_form:
             st.markdown("---")
             st.markdown("**📝 Please provide details about the incorrect alert:**")
             

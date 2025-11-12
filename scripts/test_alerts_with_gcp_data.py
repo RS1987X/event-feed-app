@@ -24,6 +24,7 @@ import sys
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Optional
 import logging
 import yaml
 
@@ -56,7 +57,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000) -> pd.DataFrame:
+def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000, source: Optional[str] = None) -> pd.DataFrame:
     """
     Fetch press releases from GCS silver bucket using existing utilities.
     
@@ -64,19 +65,28 @@ def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000) -> p
         start_date: Start date in YYYY-MM-DD format
         end_date: End date in YYYY-MM-DD format
         max_rows: Maximum number of rows to fetch
+        source: Optional source filter ('gmail', 'globenewswire', etc.)
     
     Returns:
         DataFrame with press releases
     """
-    logger.info(f"Fetching data from GCS: {start_date} to {end_date}")
+    logger.info(f"Fetching data from GCS: {start_date} to {end_date}, source={source or 'all'}")
     
     try:
         # Use the existing load_from_gcs utility
         cfg = Settings()
-        logger.info(f"Loading from: {cfg.gcs_silver_root}")
+        base_path = cfg.gcs_silver_root
+        
+        # If source specified, append partition path
+        if source:
+            gcs_path = f"{base_path}/source={source}"
+            logger.info(f"Loading from partition: {gcs_path}")
+        else:
+            gcs_path = base_path
+            logger.info(f"Loading from: {gcs_path}")
         
         # Load all data from GCS (the utility handles schema automatically)
-        df = load_from_gcs(cfg.gcs_silver_root)
+        df = load_from_gcs(gcs_path)
         
         logger.info(f"Loaded {len(df)} total records from GCS")
         
@@ -243,6 +253,7 @@ def main():
     parser.add_argument("--start-date", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     parser.add_argument("--max-rows", type=int, default=1000, help="Max rows to fetch")
+    parser.add_argument("--source", help="Filter by source (gmail, globenewswire, etc.)")
     parser.add_argument("--dry-run", action="store_true", help="Detect but don't deliver")
     parser.add_argument("--min-significance", type=float, default=0.5, help="Min significance threshold")
     parser.add_argument("--alert-all", action="store_true", help="Alert on any guidance commentary regardless of significance")
@@ -266,13 +277,14 @@ def main():
     logger.info("Alert System End-to-End Test")
     logger.info(f"{'='*60}")
     logger.info(f"Date range: {start_date} to {end_date}")
+    logger.info(f"Source filter: {args.source or 'all'}")
     logger.info(f"Dry run: {args.dry_run}")
     logger.info(f"Min significance: {args.min_significance}")
     logger.info(f"{'='*60}\n")
     
     try:
         # Step 1: Fetch data from GCS
-        df = fetch_silver_data(start_date, end_date, args.max_rows)
+        df = fetch_silver_data(start_date, end_date, args.max_rows, source=args.source)
         
         if len(df) == 0:
             logger.warning("No data found for date range")

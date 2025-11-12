@@ -415,9 +415,13 @@ class AlertDelivery:
         
         # Build Streamlit viewer URL for feedback
         viewer_base = os.getenv("VIEWER_BASE_URL", "")
-        press_release_id = alert.get("press_release_id", "")
+        # Alert stores press_release_id in "event_id" field
+        press_release_id = alert.get("event_id", "") or alert.get("press_release_id", "")
         alert_id = alert.get("alert_id", "")
         signal_type = alert.get("alert_type", "guidance_change")
+        
+        # Debug logging
+        logger.debug(f"Telegram message: viewer_base={viewer_base}, press_release_id={press_release_id}")
         
         if viewer_base and press_release_id:
             # Always link to Streamlit viewer (which will show PR + feedback form + original source link)
@@ -429,15 +433,18 @@ class AlertDelivery:
             query_string = urlencode(query_params)
             viewer_url = f"{viewer_base}?{query_string}"
             safe_url = _escape_md(viewer_url)
+            logger.info(f"Using Streamlit viewer URL: {viewer_url}")
             lines.append(f"\n📱 View & Give Feedback:\n{safe_url}")
         else:
             # Fallback: Show original press release URL or snippet if viewer not configured
+            logger.warning(f"No viewer URL generated: viewer_base={viewer_base}, press_release_id={press_release_id}")
             press_release_url = alert.get("metadata", {}).get("press_release_url")
             snippet = alert.get("metadata", {}).get("body_snippet")
             include_snippet = self.telegram_config.get("include_snippet_when_no_url", True)
             
             if press_release_url:
                 safe_url = _escape_md(press_release_url)
+                logger.info(f"Using fallback GlobeNewswire URL: {press_release_url}")
                 lines.append(f"\n🔗 View Press Release:\n{safe_url}")
             elif include_snippet and snippet:
                 safe_snippet = _escape_md(snippet)
