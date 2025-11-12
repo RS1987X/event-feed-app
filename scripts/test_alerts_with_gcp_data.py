@@ -59,62 +59,117 @@ logger = logging.getLogger(__name__)
 
 def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000, source: Optional[str] = None) -> pd.DataFrame:
     """
-    Fetch press releases from GCS silver bucket.
+    Fetch press releases from GCS silver bucket using PyArrow dataset with Hive partitioning.
     
-    Fast approach: Load from source partition, sort by date, take latest N rows.
+    Efficient approach: Uses Arrow dataset API with partition filters to only scan target date partitions.
     
     Args:
-        start_date: Start date in YYYY-MM-DD format (ignored if max_rows is small)
-        end_date: End date in YYYY-MM-DD format (ignored if max_rows is small)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
         max_rows: Maximum number of rows to fetch
         source: Optional source filter ('gmail', 'globenewswire', etc.)
     
     Returns:
-        DataFrame with press releases
+        DataFrame with press releases sorted by release_date descending
     """
-    logger.info(f"Fetching latest {max_rows} press releases from GCS, source={source or 'all'}")
+    logger.info(f"Fetching press releases from GCS (date range: {start_date} to {end_date}, source={source or 'all'})")
     
     try:
         import gcsfs
         import pyarrow.dataset as ds
         import pyarrow.compute as pc
+        from datetime import datetime, timedelta
         
         cfg = Settings()
         base_path = cfg.gcs_silver_root
         
-        # If source specified, append partition path
+        # Build GCS path (without gs:// scheme for gcsfs compatibility)
+        gcs_path = base_path
         if source:
-            gcs_path = f"{base_path}/source={source}"
-        else:
-            gcs_path = base_path
+            gcs_path = f"{gcs_path}/source={source}"
         
-        logger.info(f"Loading from: {gcs_path}")
+        logger.info(f"Loading from: gs://{gcs_path}")
         
+        # Calculate target date range
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        days_back = (end_dt - start_dt).days + 1
+        
+        # Generate list of target dates (most recent first)
+        target_dates = []
+        for i in range(days_back):
+            date = (end_dt - timedelta(days=i)).strftime('%Y-%m-%d')
+            target_dates.append(date)
+        
+        logger.info(f"Target dates ({len(target_dates)}): {target_dates[:5]}{'...' if len(target_dates) > 5 else ''}")
+        
+        # Create filesystem
         fs = gcsfs.GCSFileSystem()
         
-        # Strategy: Load entire source (uses caching), then filter in pandas
-        # This is faster than scanning partitions when max_rows is small
-        dataset = ds.dataset(gcs_path, filesystem=fs, format="parquet")
+        # Load dataset with Hive partitioning
+        # Note: gcsfs returns paths without gs:// prefix, so we pass base path without scheme
+        logger.info("Loading Arrow dataset with Hive partitioning...")
+        dataset = ds.dataset(
+            gcs_path,
+            filesystem=fs,
+            partitioning="hive",
+            format="parquet"
+        )
         
-        # Read all data - Parquet is columnar and compressed, so this is fast
-        logger.info("Reading data from GCS...")
-        table = dataset.to_table()
+        # Build partition filter for target dates
+        # Filter: release_date IN (target_dates)
+        filter_expr = ds.field("release_date").isin(target_dates)
+        
+        # If source not already in path, add source filter
+        if not source:
+            # Would need to add: ds.field("source") == "gmail", etc.
+            # For now, source is pre-filtered via path
+            pass
+        
+        logger.info(f"Scanning partitions with filter: release_date IN {target_dates}")
+        
+        # Define columns to load (only those that exist in silver schema)
+        columns = [
+            "press_release_id",
+            "company_name", 
+            "release_date",
+            "title",
+            "full_text",
+            "source_url",
+            "category"
+        ]
+        
+        # Load to Arrow table with partition filter
+        table = dataset.to_table(
+            filter=filter_expr,
+            columns=columns
+        )
+        
+        logger.info(f"Loaded {len(table)} records from Arrow dataset")
+        
+        if len(table) == 0:
+            logger.warning("No data found in target date partitions")
+            return pd.DataFrame()
+        
+        # Convert to pandas
         df = table.to_pandas()
         
-        logger.info(f"Loaded {len(df)} total records from GCS")
+        # Ensure full_text and title are filled
+        df["full_text"] = df["full_text"].fillna("")
+        df["title"] = df["title"].fillna("")
         
-        # Sort by release_date descending and take latest N
+        # Sort by release_date descending (most recent first)
         if 'release_date' in df.columns:
             df['release_date'] = pd.to_datetime(df['release_date'])
             df = df.sort_values('release_date', ascending=False)
-            logger.info(f"Sorted by release_date, latest date: {df['release_date'].iloc[0]}")
+            logger.info(f"Sorted by release_date, latest: {df['release_date'].iloc[0]}")
         
-        # Take only max_rows
+        # Limit to max_rows
         if len(df) > max_rows:
             df = df.head(max_rows).copy()
             logger.info(f"Limited to {max_rows} most recent press releases")
         
-        # Convert release_date back to string for consistency
+        # Convert release_date back to string for consistency with downstream code
         if 'release_date' in df.columns:
             df['release_date'] = df['release_date'].dt.strftime('%Y-%m-%d')
         
@@ -122,7 +177,7 @@ def fetch_silver_data(start_date: str, end_date: str, max_rows: int = 1000, sour
         return df
     
     except Exception as e:
-        logger.error(f"Failed to fetch from GCS: {e}")
+        logger.error(f"Failed to fetch from GCS: {e}", exc_info=True)
         logger.info("Ensure you have gcsfs and proper GCP credentials configured")
         raise
 
@@ -279,7 +334,8 @@ def main():
     # Determine date range
     if args.days:
         end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
+        # days=1 means "last 1 day" (today only), days=7 means "last 7 days" (today back to 6 days ago)
+        start_date = (datetime.now() - timedelta(days=args.days - 1)).strftime("%Y-%m-%d")
     elif args.start_date and args.end_date:
         start_date = args.start_date
         end_date = args.end_date

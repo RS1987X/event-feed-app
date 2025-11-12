@@ -55,12 +55,16 @@ mock_alert = {
 }
 print(f"   ✅ Created alert: {mock_alert['alert_id']}")
 
+# Initialize stores
+from event_feed_app.alerts.alert_payload_store import AlertPayloadStore
+from event_feed_app.alerts.feedback_store import FeedbackStore
+
+payload_store = AlertPayloadStore()
+feedback_store = FeedbackStore()
+
 # Test 2: Save alert payload
 print("\n2️⃣ Saving alert payload to GCS...")
 try:
-    from event_feed_app.alerts.alert_payload_store import AlertPayloadStore
-    
-    payload_store = AlertPayloadStore()
     success = payload_store.save_alert_payload(mock_alert)
     
     if success:
@@ -88,9 +92,6 @@ except Exception as e:
 # Test 4: Save user feedback
 print("\n4️⃣ Saving user feedback to GCS...")
 try:
-    from event_feed_app.alerts.feedback_store import FeedbackStore
-    
-    feedback_store = FeedbackStore()
     feedback_id = feedback_store.save_feedback(
         signal_type="guidance_change",
         signal_id="alert_e2e_test_123",

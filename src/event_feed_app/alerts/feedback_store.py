@@ -93,8 +93,20 @@ class FeedbackStore:
             # Write as newline-delimited JSON
             line = json.dumps(record) + "\n"
             
-            # Append mode
-            with fs.open(file_path, "a") as f:
+            # Read-modify-write pattern (gcsfs append mode doesn't work - overwrites instead)
+            existing_content = ""
+            if fs.exists(file_path):
+                with fs.open(file_path, "r") as f:
+                    content = f.read()
+                    # Handle both bytes and string
+                    if isinstance(content, bytes):
+                        existing_content = content.decode('utf-8')
+                    else:
+                        existing_content = content
+            
+            # Write existing + new content
+            with fs.open(file_path, "w") as f:
+                f.write(existing_content)
                 f.write(line)
             
             logger.info(f"Saved feedback {feedback_id} to {file_path}")

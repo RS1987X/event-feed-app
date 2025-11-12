@@ -15,6 +15,7 @@ Users can also flag whether the alert was correct or incorrect.
 import os
 import sys
 from pathlib import Path
+from typing import Any
 import streamlit as st
 
 # Add project to path
@@ -219,6 +220,11 @@ else:
                 )
                 
                 # For guidance_change specific fields
+                correct_metric = []
+                correct_direction = ""
+                correct_period = ""
+                guidance_type = ""
+                
                 if signal_type == "guidance_change":
                     st.markdown("**Guidance Details (optional):**")
                     
@@ -262,7 +268,7 @@ else:
                     user_id = params.get("user_id", "anonymous")
                     
                     # Build metadata
-                    guidance_metadata = {
+                    guidance_metadata: dict[str, Any] = {
                         "issue_type": issue_type
                     }
                     

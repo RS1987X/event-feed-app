@@ -365,7 +365,7 @@ def run(cfg: Settings):
     p1_lsa = P_lsa[np.arange(len(P_lsa)), np.argmax(P_lsa, axis=1)]
 
     top3_idx   = np.argsort(-P_fused, axis=1)[:, :3]
-    top3_cids  = [[base_cids[j] for j in row] for row in top3_idx]
+    top3_cids  = [[base_cids[int(j)] for j in row.tolist()] for row in top3_idx]  # type: ignore
     top3_probs = [P_fused[i, top3_idx[i]].round(4).tolist() for i in range(len(P_fused))]
 
     base_df["ml_pred_cid"]          = assigned_cids
@@ -446,10 +446,11 @@ def run(cfg: Settings):
 
     # 12) Group consensus
     consensus_payload = consensus_by_dup_group(base_df, P_fused)
-    consensus_payload["decision_group"] = [
+    decision_group = [
         decide(float(p), float(m), cfg.cat_assign_min_sim, cfg.cat_low_margin)
         for p, m in zip(consensus_payload["best_prob_g"], consensus_payload["margin_g"])
     ]
+    consensus_payload["decision_group"] = decision_group  # type: ignore
 
     # 13) Output dataframe
     out = build_output_df(
