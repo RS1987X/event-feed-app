@@ -1,2 +1,3 @@
 [console_scripts]
+event-alerts-run = event_feed_app.alerts.runner:main
 event-feed-run = event_feed_app.pipeline.orchestrator:main

@@ -40,6 +40,7 @@ viz = ["matplotlib>=3.8"]
 
 [project.scripts]
 event-feed-run = "event_feed_app.pipeline.orchestrator:main"
+event-alerts-run = "event_feed_app.alerts.runner:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
