@@ -321,9 +321,12 @@ class GuidanceAlertDetector:
         Returns:
             Single alert object with multiple guidance items
         """
-        # Generate unique alert ID based on document
+        # Generate deterministic alert ID based on press release only
+        # This ensures re-running the pipeline on the same data produces the same alert_id
+        # and the duplicate delivery check prevents re-sending
+        press_release_id = orig_doc.get('press_release_id', orig_doc.get('doc_id', 'unknown'))
         alert_id = hashlib.sha256(
-            f"{orig_doc.get('press_release_id')}_{datetime.now(timezone.utc).isoformat()}".encode()
+            f"guidance_alert_{press_release_id}".encode()
         ).hexdigest()[:16]
         
         # Extract company information (from first item, should be same for all)
@@ -375,6 +378,7 @@ class GuidanceAlertDetector:
         return {
             "alert_id": alert_id,
             "event_id": orig_doc.get("press_release_id") or orig_doc.get("id"),
+            "press_release_id": orig_doc.get("press_release_id") or orig_doc.get("doc_id") or orig_doc.get("id"),
             "alert_type": "guidance_change",
             "company_name": company_name,
             "detected_at": datetime.now(timezone.utc).isoformat(),

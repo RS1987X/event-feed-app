@@ -47,6 +47,7 @@ class AlertStore:
                     alert_id        TEXT    PRIMARY KEY,
                     event_id        TEXT    NOT NULL,
                     alert_type      TEXT    NOT NULL,
+                    press_release_id TEXT,
                     company_name    TEXT,
                     detected_at     TEXT    NOT NULL,
                     significance_score REAL NOT NULL,
@@ -104,6 +105,7 @@ class AlertStore:
                 CREATE TABLE IF NOT EXISTS alert_feedback (
                     feedback_id     TEXT    PRIMARY KEY,
                     alert_id        TEXT    NOT NULL,
+                    press_release_id TEXT,
                     user_id         TEXT    NOT NULL,
                     is_correct      INTEGER NOT NULL,  -- 1=correct, 0=incorrect
                     feedback_type   TEXT,              -- 'true_positive', 'false_positive', etc.
@@ -129,6 +131,24 @@ class AlertStore:
             except Exception:
                 # Best-effort migration; safe to ignore
                 pass
+            
+            try:
+                cur = conn.execute("PRAGMA table_info(alerts)")
+                cols = {row[1] for row in cur.fetchall()}
+                if "press_release_id" not in cols:
+                    conn.execute("ALTER TABLE alerts ADD COLUMN press_release_id TEXT")
+            except Exception:
+                # Best-effort migration; safe to ignore
+                pass
+            
+            try:
+                cur = conn.execute("PRAGMA table_info(alert_feedback)")
+                cols = {row[1] for row in cur.fetchall()}
+                if "press_release_id" not in cols:
+                    conn.execute("ALTER TABLE alert_feedback ADD COLUMN press_release_id TEXT")
+            except Exception:
+                # Best-effort migration; safe to ignore
+                pass
     
     def save_alert(self, alert: Dict[str, Any]) -> bool:
         """
@@ -144,14 +164,15 @@ class AlertStore:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     INSERT INTO alerts (
-                        alert_id, event_id, alert_type, company_name,
+                        alert_id, event_id, alert_type, press_release_id, company_name,
                         detected_at, significance_score, summary,
                         metrics_json, metadata_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     alert["alert_id"],
                     alert.get("event_id", ""),
                     alert["alert_type"],
+                    alert.get("press_release_id", ""),
                     alert.get("company_name", ""),
                     alert["detected_at"],
                     alert["significance_score"],
@@ -362,7 +383,8 @@ class AlertStore:
             logger.error(f"Failed to save user preferences: {e}", exc_info=True)
     
     def save_feedback(self, alert_id: str, user_id: str, is_correct: bool, 
-                     feedback_type: str | None = None, notes: str | None = None) -> bool:
+                     feedback_type: str | None = None, notes: str | None = None,
+                     press_release_id: str | None = None) -> bool:
         """
         Save user feedback for an alert.
         
@@ -372,6 +394,7 @@ class AlertStore:
             is_correct: True if alert was correct, False if incorrect
             feedback_type: Optional classification (e.g., 'true_positive', 'false_positive')
             notes: Optional free-text notes
+            press_release_id: Optional press release ID for reference
             
         Returns:
             True if saved successfully
@@ -390,11 +413,11 @@ class AlertStore:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     INSERT INTO alert_feedback (
-                        feedback_id, alert_id, user_id, is_correct, 
+                        feedback_id, alert_id, press_release_id, user_id, is_correct, 
                         feedback_type, notes, submitted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    feedback_id, alert_id, user_id, 
+                    feedback_id, alert_id, press_release_id, user_id, 
                     int(is_correct), feedback_type, notes, now
                 ))
             

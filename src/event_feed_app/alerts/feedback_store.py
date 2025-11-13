@@ -28,7 +28,7 @@ class FeedbackStore:
     def save_feedback(
         self,
         signal_type: str,
-        signal_id: str,
+        alert_id: str,
         press_release_id: str,
         user_id: str,
         is_correct: bool,
@@ -40,7 +40,7 @@ class FeedbackStore:
         
         Args:
             signal_type: Type of signal (e.g., 'guidance_change')
-            signal_id: Alert/signal identifier
+            alert_id: Alert identifier (renamed from signal_id for consistency)
             press_release_id: Source press release ID
             user_id: User submitting feedback
             is_correct: True if signal was correct, False if incorrect
@@ -73,7 +73,7 @@ class FeedbackStore:
             record = {
                 "feedback_id": feedback_id,
                 "signal_type": signal_type,
-                "signal_id": signal_id,
+                "alert_id": alert_id,
                 "press_release_id": press_release_id,
                 "user_id": user_id,
                 "is_correct": is_correct,
@@ -119,14 +119,14 @@ class FeedbackStore:
     def get_feedback_for_signal(
         self,
         signal_type: str,
-        signal_id: str | None = None
+        alert_id: str | None = None
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve feedback for a signal type or specific signal.
+        Retrieve feedback for a signal type or specific alert.
         
         Args:
             signal_type: Signal type to filter by
-            signal_id: Optional specific signal ID to filter
+            alert_id: Optional specific alert ID to filter (renamed from signal_id)
             
         Returns:
             List of feedback records
@@ -151,9 +151,9 @@ class FeedbackStore:
                         if line.strip():
                             records.append(json.loads(line))
             
-            # Filter by signal_id if provided
-            if signal_id:
-                records = [r for r in records if r.get("signal_id") == signal_id]
+            # Filter by alert_id if provided
+            if alert_id:
+                records = [r for r in records if r.get("alert_id") == alert_id]
             
             return records
             

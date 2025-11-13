@@ -61,6 +61,34 @@ class AlertDelivery:
         self.payload_store = AlertPayloadStore()
         self.templates_dir = templates_dir or Path(__file__).parent / "templates"
     
+    def was_already_delivered(self, alert_id: str, user_id: str, channel: str) -> bool:
+        """
+        Check if an alert was already successfully delivered to a user via a channel.
+        
+        This prevents duplicate notifications when the alerts pipeline runs multiple times.
+        
+        Args:
+            alert_id: Unique identifier for the alert
+            user_id: User identifier
+            channel: Delivery channel (email, telegram, webhook, gui)
+            
+        Returns:
+            True if alert was already successfully delivered, False otherwise
+        """
+        try:
+            import sqlite3
+            with sqlite3.connect(self.store.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT status FROM alert_deliveries WHERE alert_id = ? AND user_id = ? AND channel = ?",
+                    (alert_id, user_id, channel)
+                )
+                row = cursor.fetchone()
+                return row is not None and row[0] == 'success'
+        except Exception as e:
+            logger.error(f"Error checking delivery status: {e}", exc_info=True)
+            # Fail safe: if we can't check, allow delivery (better to send twice than never)
+            return False
+    
     def deliver(self, alert: Dict[str, Any], users: List[Dict[str, Any]]):
         """
         Deliver alert to all matching users via their preferred channels.
@@ -103,6 +131,14 @@ class AlertDelivery:
             
             for channel in channels:
                 try:
+                    # Pre-check: skip if already successfully delivered
+                    if self.was_already_delivered(alert["alert_id"], user["user_id"], channel):
+                        logger.info(
+                            f"Alert {alert['alert_id']} already delivered to {user['user_id']} "
+                            f"via {channel}, skipping duplicate"
+                        )
+                        continue
+                    
                     if channel == "email":
                         self._deliver_email(alert, user)
                     elif channel == "telegram":
