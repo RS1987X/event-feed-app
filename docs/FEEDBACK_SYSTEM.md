@@ -231,12 +231,17 @@ accuracy_by_type = feedback_df.groupby(guidance_types)["is_correct"].mean()
 
 ## Future Signal Types
 
+For planned signal types and development roadmap, see **[`SIGNAL_ROADMAP.md`](SIGNAL_ROADMAP.md)**.
+
+### Adding New Signal Types
+
 When adding new signal types (e.g., `mergers_acquisitions`):
 
 1. Add signal type key to `significant_events.yaml`
 2. Create partition in GCS: `signal_type=mergers_acquisitions/`
 3. Add signal-specific metadata fields to web viewer form
 4. Update this README with new schema fields
+5. Add to signal roadmap document
 
 ## Deployment
 

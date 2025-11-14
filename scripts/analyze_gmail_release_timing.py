@@ -140,7 +140,7 @@ def run_local_labels(out_dir: Path) -> None:
                     return dt_loc_aware.astimezone(STHLM)
         return None
 
-    labels["dt_swe"] = labels.apply(extract_ts, axis=1)
+    labels["dt_swe"] = labels.apply(extract_ts, axis=1)  # type: ignore[call-overload]
     ok = labels.dropna(subset=["dt_swe"]).copy()
     ok["dt"] = ok["dt_swe"].dt.tz_convert("UTC")
 
