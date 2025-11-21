@@ -2,11 +2,40 @@
 venv/
 .venv/
 winvenv/
+env/
+ENV/
+
+# Python cache & compiled files
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
 *.egg-info/
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg
+MANIFEST
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
 
 # Secrets & credentials
 token.json
@@ -25,15 +54,21 @@ secrets/
 *~
 
 # Data files & outputs
-data/*.csv
-data/*.json
-data/**/*.db
-*.csv
-*.db
+data/oltp/*.db
+data/labeling/*.csv
+data/labeling/*.json
 outputs/
 eval_outputs/
 unsup_clusters/
 .cache/
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
 # Model artifacts
 *.pt
@@ -41,7 +76,18 @@ unsup_clusters/
 *.onnx
 *.pkl
 *.joblib
+models/*.bin
+models/*.h5
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
 
 # OS files
 .DS_Store
 Thumbs.db
+*.bak
