@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy minimal requirements for viewer
-COPY requirements-viewer.txt .
+COPY deployment/requirements-viewer.txt .
 RUN pip install --no-cache-dir -r requirements-viewer.txt
 
 # Copy application code

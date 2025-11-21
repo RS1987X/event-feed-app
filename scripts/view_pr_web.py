@@ -54,12 +54,19 @@ def load_alert_payload(alert_id: str, signal_type: str):
     store = AlertPayloadStore()
     return store.get_alert_payload(alert_id, signal_type)
 
-with st.spinner("Loading alert details..."):
+# Check if this is a false negative review (alert_id starts with "fn_")
+is_false_negative_review = alert_id.startswith("fn_")
+
+with st.spinner("Loading press release..."):
+    # Load from alert payload store (works for both positives and negatives now)
     alert = load_alert_payload(alert_id, signal_type)
+    
+    if alert and is_false_negative_review:
+        st.info("📝 **False Negative Review**: This PR was NOT flagged. Review to see if guidance was missed.")
 
 if not alert:
-    st.error(f"❌ Alert not found: `{alert_id}`")
-    st.info("The alert may have expired or the ID is incorrect.")
+    st.error(f"❌ Press release not found: `{press_release_id}`")
+    st.info("The press release may be too old or the ID is incorrect.")
     st.stop()
 
 # Extract fields from alert payload metadata
@@ -178,8 +185,22 @@ else:
     if "show_detailed_form" not in st.session_state:
         st.session_state.show_detailed_form = False
     
+    # Adjust button labels and feedback semantics based on review type
+    if is_false_negative_review:
+        # For negative reviews: user is checking if system SHOULD have flagged it
+        correct_label = "✅ Correct (No Guidance)"
+        incorrect_label = "❌ Missed Guidance"
+        correct_help = "System was right NOT to flag this PR"
+        incorrect_help = "System missed guidance that was present"
+    else:
+        # For positive alerts: user is checking if system WAS RIGHT to flag it
+        correct_label = "✅ Correct Alert"
+        incorrect_label = "❌ Incorrect Alert"
+        correct_help = "System correctly detected guidance"
+        incorrect_help = "System incorrectly flagged this PR"
+    
     with col1:
-        if st.button("✅ Correct Alert", use_container_width=True, type="primary"):
+        if st.button(correct_label, use_container_width=True, type="primary", help=correct_help):
             user_id = params.get("user_id", "anonymous")
             
             try:
@@ -196,28 +217,45 @@ else:
                 st.error(f"❌ Failed to save feedback: {e}")
     
     with col2:
-        if st.button("❌ Incorrect Alert", use_container_width=True):
+        if st.button(incorrect_label, use_container_width=True, help=incorrect_help):
             st.session_state.show_detailed_form = True
     
     # Detailed feedback form (shown when "Incorrect" is clicked)
     if st.session_state.show_detailed_form:
             st.markdown("---")
-            st.markdown("**📝 Please provide details about the incorrect alert:**")
+            
+            if is_false_negative_review:
+                st.markdown("**📝 What guidance did the system miss?**")
+            else:
+                st.markdown("**📝 Please provide details about the incorrect alert:**")
             
             with st.form("detailed_feedback_form"):
-                # Issue type
-                issue_type = st.selectbox(
-                    "What was wrong?",
-                    [
-                        "false_positive",
-                        "wrong_metric",
-                        "wrong_direction",
-                        "wrong_period",
-                        "wrong_magnitude",
-                        "missed_context"
-                    ],
-                    help="Select the type of error"
-                )
+                # Issue type - different options for negative reviews vs positive alerts
+                if is_false_negative_review:
+                    issue_type = st.selectbox(
+                        "Type of missed guidance:",
+                        [
+                            "false_negative",
+                            "missed_revenue",
+                            "missed_eps",
+                            "missed_margin",
+                            "missed_other_metric"
+                        ],
+                        help="What type of guidance was missed?"
+                    )
+                else:
+                    issue_type = st.selectbox(
+                        "What was wrong?",
+                        [
+                            "false_positive",
+                            "wrong_metric",
+                            "wrong_direction",
+                            "wrong_period",
+                            "wrong_magnitude",
+                            "missed_context"
+                        ],
+                        help="Select the type of error"
+                    )
                 
                 # For guidance_change specific fields
                 correct_metric = []

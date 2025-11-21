@@ -60,15 +60,20 @@ class FeedbackStore:
             feedback_id = f"fb_{uuid.uuid4().hex[:12]}"
             now = datetime.now(timezone.utc)
             
+            # Determine if this is a negative review (alert_id starts with "fn_")
+            is_negative_review = alert_id.startswith("fn_")
+            
             # Determine feedback classification
             if is_correct:
-                feedback_type = "true_positive"
+                # Correct feedback: true_positive (for alerts) or true_negative (for negative reviews)
+                feedback_type = "true_negative" if is_negative_review else "true_positive"
             else:
-                # Check metadata for more specific classification
+                # Incorrect feedback: check metadata for specific issue type
                 if guidance_metadata and guidance_metadata.get("issue_type"):
                     feedback_type = guidance_metadata["issue_type"]
                 else:
-                    feedback_type = "false_positive"
+                    # Default: false_positive (for alerts) or false_negative (for negative reviews)
+                    feedback_type = "false_negative" if is_negative_review else "false_positive"
             
             record = {
                 "feedback_id": feedback_id,
