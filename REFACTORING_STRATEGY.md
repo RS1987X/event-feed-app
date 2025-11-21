@@ -1,8 +1,13 @@
 # Event Feed App - Comprehensive Refactoring Strategy
 
 **Date**: November 21, 2025  
-**Current State**: Feature branch `feature/alert-system`  
+**Current State**: Main branch (alert system merged) on `refactor/consolidate-structure`  
 **Objective**: Transform organically grown codebase into clear, maintainable, production-ready structure
+
+**System Overview:**
+- **Classification Pipeline**: Categorizes press releases using taxonomy rules engine (M&A, earnings, personnel, etc.)
+- **Alert System**: Detects high-signal events (earnings guidance changes) and delivers alerts via Telegram/Email
+- **Data Flow**: Gmail/RSS → Bronze (raw) → Silver (parquet) → Classification → Alert Detection → Delivery
 
 ---
 
@@ -141,16 +146,29 @@ event-feed-app/
 
 #### 2.1 Plan Module Mapping
 
-| Legacy Module | New Location | Notes |
-|---------------|--------------|-------|
-| `core/company_loader.py` | `src/event_feed_app/data/company_loader.py` | Data loading |
-| `core/company_matcher.py` | `src/event_feed_app/data/company_matcher.py` | Data matching |
-| `core/event_types.py` | `src/event_feed_app/events/types.py` | Event models |
-| `core/oltp_store.py` | `src/event_feed_app/data/oltp_store.py` | DB operations |
-| `auth/gmail_auth.py` | `src/event_feed_app/sources/auth/gmail_auth.py` | Auth logic |
-| `sources/gmail_fetcher.py` | `src/event_feed_app/sources/gmail_fetcher.py` | Data ingestion |
-| `sources/rss_sources.py` | `src/event_feed_app/sources/rss_sources.py` | Data ingestion |
-| `utils/time_utils.py` | `src/event_feed_app/utils/time_utils.py` | Merge with existing |
+**VERIFIED ACTIVE STATUS - Migration Priority:**
+
+| Legacy Module | New Location | Status | Notes |
+|---------------|--------------|--------|-------|
+| `core/event_types.py` | `src/event_feed_app/events/types.py` | 🔴 **ACTIVE** | Used by main.py, tests, sources |
+| `core/company_loader.py` | `src/event_feed_app/data/company_loader.py` | 🔴 **ACTIVE** | Used by sources, tests |
+| `core/company_matcher.py` | `src/event_feed_app/data/company_matcher.py` | 🔴 **ACTIVE** | Used by sources, tests |
+| `core/oltp_store.py` | `src/event_feed_app/data/oltp_store.py` | 🔴 **ACTIVE** | Used by main.py, main_cloud.py |
+| `auth/gmail_auth.py` | `src/event_feed_app/sources/auth/gmail.py` | 🔴 **ACTIVE** | Used by gmail_fetcher |
+| `sources/gmail_fetcher.py` | **⚠️ VERIFY** | ⚠️ **CHECK** | Possibly replaced by jobs/ingestion? |
+| `sources/rss_sources.py` | **⚠️ VERIFY** | ⚠️ **CHECK** | Used by main.py, main_cloud.py |
+| `utils/time_utils.py` | `src/event_feed_app/utils/time.py` | 🟡 **MINIMAL** | Merge with existing utils |
+
+**CRITICAL FILES TO TRIAGE FIRST:**
+- `main.py` - 21 imports from legacy modules - What is this? Still used?
+- `main_cloud.py` - 4 imports from legacy - Cloud deployment? Replaced?
+- `sources/gmail_fetcher.py` - Is ingestion now in jobs/ingestion/?
+- `sources/rss_sources.py` - Still needed for RSS ingestion?
+
+**ACTION REQUIRED BEFORE MIGRATION:**
+1. Determine if `main.py` and `main_cloud.py` are still entry points
+2. Check if `sources/` is replaced by `jobs/ingestion/`
+3. If obsolete, archive rather than migrate
 
 #### 2.2 Migration Steps (Per Module)
 1. Copy module to new location
