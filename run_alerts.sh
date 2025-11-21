@@ -1,0 +1,1 @@
+deployment/run_alerts.sh
