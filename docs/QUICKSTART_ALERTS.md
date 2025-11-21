@@ -134,7 +134,7 @@ Significance Score: 85/100
 
 ### In Database:
 ```bash
-sqlite3 data/oltp/alerts.db "SELECT * FROM alerts ORDER BY detected_at DESC LIMIT 1;"
+sqlite3 data/state/alerts.db "SELECT * FROM alerts ORDER BY detected_at DESC LIMIT 1;"
 ```
 
 ## Troubleshooting

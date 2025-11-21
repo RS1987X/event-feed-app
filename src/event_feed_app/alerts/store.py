@@ -29,10 +29,10 @@ class AlertStore:
         Initialize the alert store.
         
         Args:
-            db_path: Path to SQLite database file (default: data/oltp/alerts.db)
+            db_path: Path to SQLite database file (default: data/state/alerts.db)
         """
         if db_path is None:
-            db_path = Path("data/oltp/alerts.db")
+            db_path = Path("data/state/alerts.db")
         
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

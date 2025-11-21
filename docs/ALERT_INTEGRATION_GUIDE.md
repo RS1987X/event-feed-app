@@ -368,7 +368,7 @@ python3 scripts/alert_cli.py user analyst@fund.com
 
 ### Check alert database:
 ```bash
-sqlite3 data/oltp/alerts.db
+sqlite3 data/state/alerts.db
 
 SELECT 
     alert_id,

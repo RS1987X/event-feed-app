@@ -232,7 +232,7 @@ The alert system uses SQLite with the following tables:
 - **guidance_prior_state**: Stores prior guidance for comparison
 - **user_preferences**: User configuration and watchlists
 
-Database location: `data/oltp/alerts.db`
+Database location: `data/state/alerts.db`
 
 ## Examples
 
@@ -339,7 +339,7 @@ For production use:
 ## Support
 
 For issues or questions:
-1. Check logs in `data/oltp/alerts.db`
+1. Check logs in `data/state/alerts.db`
 2. Review `EARNINGS_GUIDANCE_ALERT_STRATEGY.md`
 3. Run examples to verify setup
 4. Check user preferences with `alert_cli.py`

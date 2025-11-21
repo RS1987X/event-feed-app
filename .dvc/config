@@ -1,4 +1,4 @@
 [core]
     remote = mygcs
 ['remote "mygcs"']
-    url = gs://event-feed-app-data/oltp
+    url = gs://event-feed-app-data/state

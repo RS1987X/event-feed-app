@@ -54,7 +54,7 @@ secrets/
 *~
 
 # Data files & outputs
-data/oltp/*.db
+data/state/*.db
 data/labeling/*.csv
 data/labeling/*.json
 outputs/
