@@ -94,7 +94,7 @@ print("\n4️⃣ Saving user feedback to GCS...")
 try:
     feedback_id = feedback_store.save_feedback(
         signal_type="guidance_change",
-        signal_id="alert_e2e_test_123",
+        alert_id="alert_e2e_test_123",
         press_release_id="test_pr_456",
         user_id="test_user",
         is_correct=False,
@@ -115,7 +115,7 @@ print("\n5️⃣ Retrieving feedback from GCS...")
 try:
     feedback = feedback_store.get_feedback_for_signal(
         signal_type="guidance_change",
-        signal_id="alert_e2e_test_123"
+        alert_id="alert_e2e_test_123"
     )
     
     if feedback:

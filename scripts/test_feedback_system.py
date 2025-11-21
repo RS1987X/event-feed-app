@@ -29,7 +29,7 @@ def main():
     try:
         feedback_id = store.save_feedback(
             signal_type="guidance_change",
-            signal_id="alert_test123",
+            alert_id="alert_test123",
             press_release_id="1980c93f9f819a6d",
             user_id="user_test",
             is_correct=True,
@@ -51,7 +51,7 @@ def main():
     try:
         feedback_id = store.save_feedback(
             signal_type="guidance_change",
-            signal_id="alert_test456",
+            alert_id="alert_test456",
             press_release_id="abc123def456",
             user_id="user_test",
             is_correct=False,
@@ -72,7 +72,7 @@ def main():
     try:
         feedback = store.get_feedback_for_signal(
             signal_type="guidance_change",
-            signal_id="alert_test123"
+            alert_id="alert_test123"
         )
         print(f"   Found {len(feedback)} feedback entries:")
         for fb in feedback:

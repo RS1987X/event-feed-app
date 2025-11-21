@@ -156,7 +156,7 @@ feedback_store = FeedbackStore()
 # Check for existing feedback
 existing_feedback = feedback_store.get_feedback_for_signal(
     signal_type=signal_type,
-    signal_id=alert_id
+    alert_id=alert_id
 )
 
 if existing_feedback:
@@ -185,7 +185,7 @@ else:
             try:
                 feedback_id = feedback_store.save_feedback(
                     signal_type=signal_type,
-                    signal_id=alert_id,
+                    alert_id=alert_id,
                     press_release_id=press_release_id,
                     user_id=user_id,
                     is_correct=True
@@ -285,7 +285,7 @@ else:
                     try:
                         feedback_id = feedback_store.save_feedback(
                             signal_type=signal_type,
-                            signal_id=alert_id,
+                            alert_id=alert_id,
                             press_release_id=press_release_id,
                             user_id=user_id,
                             is_correct=False,
