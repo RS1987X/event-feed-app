@@ -1,3 +1,5 @@
 [console_scripts]
+event-alerts-review = event_feed_app.alerts.review.daily_review:main
 event-alerts-run = event_feed_app.alerts.runner:main
+event-alerts-telegram = event_feed_app.alerts.review.telegram_handler:main
 event-feed-run = event_feed_app.pipeline.orchestrator:main

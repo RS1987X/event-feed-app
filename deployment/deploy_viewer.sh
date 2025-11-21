@@ -13,7 +13,7 @@ echo "🚀 Deploying Press Release Viewer to Cloud Run..."
 
 # Step 1: Build container image
 echo "📦 Building Docker image..."
-docker build -t ${IMAGE_NAME} -f Dockerfile.viewer .
+docker build -t ${IMAGE_NAME} -f deployment/Dockerfile.viewer .
 docker push ${IMAGE_NAME}
 
 # Step 2: Deploy to Cloud Run

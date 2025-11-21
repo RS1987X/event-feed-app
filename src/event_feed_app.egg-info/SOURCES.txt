@@ -18,6 +18,10 @@ src/event_feed_app/alerts/feedback_store.py
 src/event_feed_app/alerts/orchestration.py
 src/event_feed_app/alerts/runner.py
 src/event_feed_app/alerts/store.py
+src/event_feed_app/alerts/review/__init__.py
+src/event_feed_app/alerts/review/daily_review.py
+src/event_feed_app/alerts/review/telegram_handler.py
+src/event_feed_app/alerts/review/test_feedback.py
 src/event_feed_app/configs/pipeline_utils.py
 src/event_feed_app/configs/kwex/kwex_utils.py
 src/event_feed_app/data/__init__.py
@@ -96,7 +100,5 @@ src/event_feed_app/utils/io.py
 src/event_feed_app/utils/lang.py
 src/event_feed_app/utils/math.py
 src/event_feed_app/utils/text.py
-tests/test_company_matching.py
-tests/test_oldb_store.py
 tests/test_pollers.py
 tests/test_yaml_earnings_guidance.py

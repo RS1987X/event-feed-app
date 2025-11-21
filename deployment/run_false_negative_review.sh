@@ -12,5 +12,6 @@ set +a
 # Activate virtual environment
 source venv/bin/activate
 
-# Run the review script
-python scripts/alerts/daily_false_negative_review.py --size 10 --days 1 --category earnings
+# Run the review using entry point
+# Sample from last 10 days for better variety (no category filter since it's not populated)
+event-alerts-review --size 10 --days 10
