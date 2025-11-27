@@ -1,0 +1,2 @@
+feedback_id,signal_type,signal_id,press_release_id,user_id,is_correct,feedback_type,submitted_at,metadata,notes,alert_id
+fb_a246cab03fd5,guidance_change,,test_pr_12345,test_user_001,False,false_negative,2025-11-21T13:26:45.531318+00:00,"{'issue_type': 'false_negative', 'review_type': 'daily_fn_review'}",Raised FY2025 revenue guidance from $500M to $550M,fn_test_pr_12345

@@ -1,0 +1,24 @@
+feedback_id,signal_type,signal_id,press_release_id,user_id,is_correct,feedback_type,submitted_at,metadata,notes,alert_id
+fb_bb796eda9fbe,guidance_change,0144a5e20bba3945,19a76a655dbcfea3,anonymous,True,true_positive,2025-11-12T21:14:07.836760+00:00,{},,
+fb_944a8340a5a7,guidance_change,7eaf8dcd0ec48881,19a768aedc5061e6,anonymous,True,true_positive,2025-11-12T22:09:50.154544+00:00,{},,
+fb_fb1628583b9e,guidance_change,68528afbdfe97b90,prnewswire__60684ad9132ffccc,anonymous,True,true_positive,2025-11-12T23:04:31.824353+00:00,{},,
+fb_872bc5153e33,guidance_change,00e48fb6ba25fcf2,prnewswire__1d8ac20b73470d97,anonymous,True,true_positive,2025-11-13T09:49:05.373482+00:00,{},,
+fb_631b194fadd0,guidance_change,da5d59dc0a446a67,prnewswire__bcd7dfd2a2d3f1cb,anonymous,True,true_positive,2025-11-13T09:57:59.701243+00:00,{},,
+fb_8aa691e96fbb,guidance_change,814b6f6e97024de8,19a7bccd19e2dc1f,anonymous,True,true_positive,2025-11-13T10:00:23.423522+00:00,{},,
+fb_3ae9ffc0dea8,guidance_change,eda1e7d35b8b8443,19a7be83ad2165b6,anonymous,True,true_positive,2025-11-13T10:03:16.266994+00:00,{},,
+fb_cdab03a69475,guidance_change,6931436607e43ccf,19a80f3484f404f8,anonymous,True,true_positive,2025-11-14T08:24:12.891420+00:00,{},,
+fb_2c2c6b9ac80e,guidance_change,1c933a9610dd0d08,globenewswire__80c479c772b2fb74,anonymous,True,true_positive,2025-11-17T20:44:53.387983+00:00,{},,
+fb_22be01855396,guidance_change,0ec6a8ac274523a1,19a9ad2786570c80,anonymous,True,true_positive,2025-11-19T07:57:57.859225+00:00,{},,
+fb_f91ab268357c,guidance_change,ceff31282aef515b,globenewswire__19ea20b9a91d2b20,anonymous,True,true_positive,2025-11-21T12:32:21.507382+00:00,{},,
+fb_ad34f63124e5,guidance_change,,test_pr_67890,test_user_001,True,true_positive,2025-11-21T13:27:04.224311+00:00,"{'issue_type': 'true_negative', 'review_type': 'daily_fn_review'}","Just reporting quarterly results, no forward guidance",fn_test_pr_67890
+fb_36da916fd398,guidance_change,,prnewswire__cc12135046b10258,anonymous,True,true_positive,2025-11-21T19:44:45.312812+00:00,{},,fn_prnewswire__cc12135046b10258
+fb_4f9314552984,guidance_change,,19aa1429242cf0b7,anonymous,True,true_positive,2025-11-21T20:03:15.606036+00:00,{},,fn_19aa1429242cf0b7
+fb_86baf1ced563,guidance_change,,19ab49bd6cb124ff,anonymous,True,true_positive,2025-11-24T08:20:09.378055+00:00,{},,605924ac82fe4461
+fb_edd369e474a3,guidance_change,,19ab472b457df262,anonymous,True,true_positive,2025-11-24T08:22:13.270437+00:00,{},,ce775808e1db7fe9
+fb_90040302d964,guidance_change,,19ab6d092c643930,anonymous,True,true_positive,2025-11-24T22:47:57.171305+00:00,{},,7540f5487cedb9cb
+fb_402026079dd9,guidance_change,,globenewswire__fc7e03af9f89ad50,anonymous,True,true_positive,2025-11-25T23:22:22.384176+00:00,{},,ceb9fdefe043eab8
+fb_07b44de468a1,guidance_change,,19abae00ff664cc6,anonymous,True,true_positive,2025-11-25T23:24:17.101680+00:00,{},,d3d77950ccb89eb7
+fb_f309c81aab9a,guidance_change,,19abaee031218001,anonymous,True,true_positive,2025-11-25T23:27:48.823617+00:00,{},,29c529447666f7ad
+fb_9fdde869aaff,guidance_change,,prnewswire__4e42376fc8fd14ca,anonymous,True,true_positive,2025-11-26T08:21:53.447307+00:00,{},,441a8956d5eb435a
+fb_632682877315,guidance_change,,prnewswire__1dfb4a728530bb1b,anonymous,True,true_positive,2025-11-26T08:22:50.740095+00:00,{},,2c787009c1c802b6
+fb_5d9395bd4470,guidance_change,,prnewswire__d34b0c992b655459,anonymous,True,true_positive,2025-11-26T08:23:48.089194+00:00,{},,6bf200d791f4f360

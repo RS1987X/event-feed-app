@@ -207,6 +207,92 @@ triggers:
 - Combine with other signals (e.g., executive moves between linked companies)
 
 ---
+
+### 🎯 Insider Trading Activity (`insider_trading`)
+
+**Priority**: High  
+**Description**: Track significant insider buying/selling and options trades by executives, directors, and major shareholders as disclosed in press releases and regulatory filings
+
+**Key Use Cases**:
+- **Significant insider buying** - Track when executives/directors buy meaningful amounts
+- **Clustered insider purchases** - Multiple insiders buying in short timeframe (strong signal)
+- **Options exercises and holds** - Executives exercising options and retaining shares
+- **10b5-1 plan disclosures** - Automated selling plans vs. discretionary trades
+- **Form 4 filing announcements** - Large transactions by insiders
+- **Director buying** - Independent directors investing own capital
+- **Options grants vs. purchases** - Distinguish compensation from open market buys
+
+**Detection Patterns**:
+```yaml
+triggers:
+  insider_buying:
+    - "[NAME].*purchased [NUMBER] shares"
+    - "[NAME].*acquired [NUMBER] shares"
+    - "insider purchase.*[NUMBER] shares"
+    - "[TITLE] bought [NUMBER] shares"
+    - "open market purchase"
+    
+  significant_volume:
+    - "purchased.*million shares"
+    - "acquired.*[0-9]+% of outstanding"
+    - "significant stake"
+    - "substantial investment"
+    
+  options_activity:
+    - "exercised [NUMBER] options"
+    - "option exercise.*retained shares"
+    - "stock option.*[NUMBER] shares"
+    - "converted options to shares"
+    
+  filing_disclosures:
+    - "filed Form 4"
+    - "SEC filing disclosed"
+    - "insider transaction report"
+```
+
+**Database Schema**:
+- `insider_name`: Name of insider
+- `insider_role`: CEO | CFO | Director | COO | Other C-Suite | 10% Owner
+- `transaction_type`: purchase | sale | option_exercise | option_grant | gift
+- `shares_transacted`: Number of shares bought/sold
+- `transaction_value`: Dollar value of transaction
+- `share_price`: Price per share
+- `shares_owned_after`: Total shares owned after transaction
+- `ownership_percentage`: Percentage of company owned
+- `transaction_date`: Date of transaction
+- `filing_date`: Date disclosed/filed
+- `transaction_code`: D (disposition) | A (acquisition) | M (option exercise)
+- `form_type`: Form 4 | Form 3 | Form 5
+- `plan_type`: 10b5-1 | discretionary | compensation
+- `shares_retained_after_exercise`: For option exercises, shares kept vs sold
+
+**Signal Opportunities**:
+- **Heavy insider buying**: Multiple large purchases = strong confidence signal
+- **Options exercise + hold**: Executives converting and retaining = bullish
+- **Director purchases**: Independent directors using own capital = high conviction
+- **Clustered buying**: Multiple insiders buying within days = coordinated confidence
+- **Buy vs sell ratio**: Track insider sentiment over time
+- **Size significance**: Purchases >1% of shares outstanding or >$1M
+- **Timing analysis**: Buying before positive news = potential information advantage
+- **10b5-1 violations**: Discretionary buys outside plans = stronger signal
+
+**Implementation Notes**:
+- Parse transaction amounts, prices, and share counts
+- Distinguish between compensation (grants/awards) and open market purchases
+- Track cumulative insider activity over rolling periods (30/90 days)
+- Flag transactions above materiality thresholds (% of salary, % of ownership)
+- Cross-reference with stock price to identify buying near lows
+- Particularly valuable when combined with other signals (e.g., insider buying before guidance raise)
+- May integrate with SEC EDGAR for comprehensive filing coverage
+- Options activity especially informative when executives hold shares post-exercise
+
+**Example High-Value Scenarios**:
+1. **CEO buying $5M+ in open market** - Personal capital at risk = high confidence
+2. **Multiple directors buying within 1 week** - Coordinated signal of undervaluation
+3. **CFO exercises 100K options and retains all shares** - Bullish on stock vs selling for liquidity
+4. **10% owner increases stake from 12% to 15%** - Strategic accumulation
+
+---
 ---
 
 ### 🎯 Corporate Events Calendar (`future_events_calendar`)
@@ -223,6 +309,7 @@ triggers:
 - **Regulatory deadlines** - Filing deadlines, license renewals, compliance dates
 - **Lock-up expirations** - Post-IPO or secondary offering lock-up end dates
 - **Dividend schedule** - Ex-dividend, record, and payment dates
+- **Incentive program deadlines** - Stock option vesting dates, performance measurement period ends
 - **Competitor events** - Peer earnings dates, product launches for competitive analysis
 
 **Detection Patterns**:
@@ -253,6 +340,13 @@ triggers:
   lock_ups:
     - "lock-up period expires [DATE]"
     - "lock-up ends [DATE]"
+    
+  incentive_programs:
+    - "performance period ends [DATE]"
+    - "measurement period.*[END_DATE]"
+    - "incentive program.*expires [DATE]"
+    - "performance targets.*measured on [DATE]"
+    - "vesting date [DATE]"
 ```
 
 **Database Schema**:
@@ -276,6 +370,7 @@ triggers:
 - **AGM catalysts**: Shareholder activism opportunities around meeting dates
 - **Competitor calendar clustering**: When multiple peers report earnings in same week
 - **Event gaps**: Missing expected events (e.g., no earnings date announced) = potential issue
+- **Incentive program manipulation**: Watch for stock price clustering/pumping before performance measurement dates - management may try to drive stock up to hit targets before period ends
 
 **Implementation Notes**:
 - Requires date extraction and normalization (various date formats)
@@ -307,6 +402,195 @@ triggers:
 - Monitor board composition changes
 - Detect sudden departures or terminations
 - Identify interim appointments
+
+### 🎯 Product Recalls (`product_recall`)
+
+**Priority**: High  
+**Description**: Detect major product recalls, particularly for medical device, pharmaceutical, automotive, and consumer product companies where recalls have significant financial and reputational impact
+
+**Key Use Cases**:
+- **Medical device recalls** - FDA Class I/II recalls for safety issues (highest priority)
+- **Pharmaceutical recalls** - Drug recalls due to contamination, labeling, or efficacy issues
+- **Automotive recalls** - Vehicle safety recalls affecting large volumes
+- **Consumer product recalls** - CPSC recalls for safety hazards
+- **Food recalls** - FDA/USDA recalls for contamination or allergens
+- **Voluntary vs. mandatory recalls** - Distinguish severity and regulatory pressure
+- **Recall expansion** - Track when initial recalls are expanded in scope
+
+**Detection Patterns**:
+```yaml
+triggers:
+  recall_announcements:
+    - "recall[ing|ed] [NUMBER] [units|devices|vehicles]"
+    - "voluntary recall"
+    - "FDA.*recall"
+    - "CPSC.*recall"
+    - "safety recall"
+    - "product recall"
+    
+  medical_device:
+    - "Class [I|II|III] recall"
+    - "medical device recall"
+    - "FDA clearance.*withdrawn"
+    - "safety alert"
+    
+  severity_indicators:
+    - "serious health consequences"
+    - "death or serious injury"
+    - "safety hazard"
+    - "contamination"
+    - "manufacturing defect"
+    
+  scope:
+    - "expanding recall"
+    - "recall affects [NUMBER] units"
+    - "worldwide recall"
+    - "all lots recalled"
+```
+
+**Database Schema**:
+- `product_name`: Name of recalled product
+- `product_category`: medical_device | pharmaceutical | automotive | consumer | food
+- `recall_reason`: Safety hazard, contamination, defect, labeling error, etc.
+- `recall_class`: Class I | Class II | Class III (for FDA recalls)
+- `recall_type`: voluntary | mandatory | market_withdrawal
+- `units_affected`: Number of units/lots recalled
+- `geographic_scope`: US only | worldwide | specific regions
+- `regulatory_agency`: FDA | CPSC | NHTSA | USDA | etc.
+- `health_risk_level`: critical | serious | moderate | low
+- `recall_initiation_date`: When recall began
+- `announcement_date`: When publicly announced
+- `estimated_financial_impact`: Dollar cost if disclosed
+- `recall_expansion`: Boolean flag if recall was later expanded
+
+**Signal Opportunities**:
+- **Class I medical device recalls**: Highest severity - potential for significant stock decline
+- **Recall expansion signals**: Initial recall expanded = worse than first disclosed
+- **Multiple recalls in short period**: Pattern of quality issues = systemic problem
+- **Competitor advantage**: Recall creates market share opportunity for competitors
+- **Recall cost disclosure**: Track companies that disclose financial impact vs. those that don't
+- **Repeat offenders**: Companies with history of recalls in same product line
+- **Post-recall monitoring**: Stock often overshoots on bad news, potential buy opportunity after stabilization
+
+**Implementation Notes**:
+- Particularly critical for medtech companies (Class I recalls can destroy stock)
+- Parse unit counts and scope to assess materiality
+- Track if company provides financial impact estimates
+- Monitor for follow-up announcements (recall expansions, lawsuits)
+- Cross-reference with regulatory databases (FDA, CPSC) for validation
+- Severity varies dramatically by industry and class
+- Medical device recalls often have outsized impact vs. consumer product recalls
+
+**Example High-Impact Scenarios**:
+1. **Class I FDA recall for implantable device** - Immediate trading halt risk, stock down 20-50%
+2. **Recall affecting >50% of product line revenue** - Material earnings impact
+3. **Second recall of same product within 6 months** - Quality control failure pattern
+4. **Worldwide recall + regulatory investigation** - Potential for additional penalties
+
+---
+
+### 🎯 Regulatory Investigations (`regulatory_investigation`)
+
+**Priority**: High  
+**Description**: Detect when major regulatory bodies announce investigations into fraud, corruption, money laundering, terrorist financing, sanctions violations, or other serious misconduct
+
+**Key Use Cases**:
+- **Fraud investigations** - SEC, DOJ, FTC investigating fraudulent practices
+- **Anti-money laundering (AML) probes** - FinCEN, banking regulators investigating AML failures
+- **Corruption/bribery** - DOJ FCPA investigations, international corruption probes
+- **Terrorist financing** - OFAC, Treasury investigations into terror finance links
+- **Sanctions violations** - OFAC sanctions breach investigations
+- **Market manipulation** - SEC/FINRA investigating pump-and-dump, insider trading
+- **Accounting fraud** - SEC investigating financial statement irregularities
+- **Regulatory enforcement actions** - Consent orders, fines, penalties announced
+
+**Detection Patterns**:
+```yaml
+triggers:
+  investigation_announcements:
+    - "SEC.*investigat[ing|ion]"
+    - "DOJ.*probe"
+    - "regulatory investigation"
+    - "under investigation by [AGENCY]"
+    - "received subpoena from"
+    - "cooperating with authorities"
+    
+  fraud_corruption:
+    - "fraud investigation"
+    - "accounting irregularities"
+    - "FCPA.*investigation"
+    - "bribery.*probe"
+    - "corruption.*investigation"
+    
+  aml_sanctions:
+    - "anti-money laundering.*investigation"
+    - "AML.*violations"
+    - "sanctions violation"
+    - "OFAC.*investigation"
+    - "terrorist financing"
+    - "FinCEN.*action"
+    
+  enforcement:
+    - "consent order"
+    - "cease and desist"
+    - "civil penalty.*[AMOUNT]"
+    - "settlement.*[AMOUNT]"
+    - "enforcement action"
+    
+  severity_indicators:
+    - "criminal investigation"
+    - "class action lawsuit"
+    - "shareholder lawsuit"
+    - "whistleblower complaint"
+```
+
+**Database Schema**:
+- `investigating_agency`: SEC | DOJ | FinCEN | OFAC | FTC | FDA | State AG | etc.
+- `investigation_type`: fraud | aml | corruption | sanctions | market_manipulation | accounting
+- `allegation_summary`: Brief description of alleged misconduct
+- `investigation_status`: preliminary | formal | settled | ongoing
+- `announcement_date`: When investigation disclosed
+- `criminal_vs_civil`: criminal | civil | both
+- `potential_penalties`: Estimated or disclosed penalty range
+- `management_response`: cooperating | disputing | settled
+- `prior_violations`: History of similar issues (if any)
+- `international_scope`: Domestic only | international
+- `related_parties`: Other entities or individuals under investigation
+
+**Signal Opportunities**:
+- **Criminal investigations**: Far more serious than civil - potential for executive liability
+- **Multiple agency involvement**: DOJ + SEC = higher severity, potential criminal charges
+- **Repeat offenders**: Companies with history of compliance failures face harsher penalties
+- **Whistleblower involvement**: Often indicates substantial evidence exists
+- **Class action following investigation**: Investigation triggers lawsuits = compounding risk
+- **Settlement amounts**: Track disclosed vs. eventual settlement to gauge severity
+- **Stock response patterns**: Often sharp initial decline, then gradual recovery (or further decline if expanded)
+- **Leadership changes post-announcement**: CEO/CFO departures following investigation = serious
+
+**Implementation Notes**:
+- Parse agency names and investigation types carefully
+- Track investigation lifecycle from announcement to resolution
+- Monitor for updates, expansions, or additional charges
+- Cross-reference with enforcement databases (SEC, DOJ)
+- Distinguish between voluntary disclosure vs. agency announcement
+- Financial institutions particularly vulnerable to AML/sanctions probes
+- International investigations (FCPA, EU regulators) often involve multiple years
+
+**Example High-Impact Scenarios**:
+1. **DOJ criminal investigation + SEC civil probe** - Dual track investigation = serious
+2. **Money laundering investigation at major bank** - Multi-billion dollar penalty risk
+3. **FCPA bribery probe** - Can result in >$500M settlements, executive prosecutions
+4. **Accounting fraud with class action lawsuit** - Stock down 30-60%, potential delisting
+5. **OFAC sanctions violation for defense/energy companies** - Business model disruption risk
+
+**Risk Indicators**:
+- **Immediate risk**: Stock typically drops 10-30% on investigation announcement
+- **Long-term risk**: Overhang until resolution (can be years)
+- **Execution risk**: Management distraction, legal costs, business disruption
+- **Reputational damage**: Customer/partner reluctance, contract losses
+- **Regulatory restrictions**: May lose licenses, certifications, or operating permissions
+
+---
 
 ### 🎯 Production Facility Delays (`facility_delay`)
 

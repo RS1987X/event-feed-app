@@ -1,0 +1,79 @@
+feedback_id,signal_type,signal_id,press_release_id,user_id,is_correct,feedback_type,submitted_at,metadata,notes,alert_id
+fb_bb796eda9fbe,guidance_change,0144a5e20bba3945,19a76a655dbcfea3,anonymous,True,true_positive,2025-11-12T21:14:07.836760+00:00,{},,
+fb_944a8340a5a7,guidance_change,7eaf8dcd0ec48881,19a768aedc5061e6,anonymous,True,true_positive,2025-11-12T22:09:50.154544+00:00,{},,
+fb_fb1628583b9e,guidance_change,68528afbdfe97b90,prnewswire__60684ad9132ffccc,anonymous,True,true_positive,2025-11-12T23:04:31.824353+00:00,{},,
+fb_872bc5153e33,guidance_change,00e48fb6ba25fcf2,prnewswire__1d8ac20b73470d97,anonymous,True,true_positive,2025-11-13T09:49:05.373482+00:00,{},,
+fb_631b194fadd0,guidance_change,da5d59dc0a446a67,prnewswire__bcd7dfd2a2d3f1cb,anonymous,True,true_positive,2025-11-13T09:57:59.701243+00:00,{},,
+fb_8aa691e96fbb,guidance_change,814b6f6e97024de8,19a7bccd19e2dc1f,anonymous,True,true_positive,2025-11-13T10:00:23.423522+00:00,{},,
+fb_3ae9ffc0dea8,guidance_change,eda1e7d35b8b8443,19a7be83ad2165b6,anonymous,True,true_positive,2025-11-13T10:03:16.266994+00:00,{},,
+fb_cdab03a69475,guidance_change,6931436607e43ccf,19a80f3484f404f8,anonymous,True,true_positive,2025-11-14T08:24:12.891420+00:00,{},,
+fb_83324eba773e,guidance_change,dff22c4f087cb886,19a9081a50752c4b,anonymous,False,false_positive,2025-11-17T08:04:04.665571+00:00,{'issue_type': 'false_positive'},Its about Investment in real estate project,
+fb_0373486bd778,guidance_change,fc9c3f1511213944,19a92741fff024d2,anonymous,False,false_positive,2025-11-17T20:43:31.948772+00:00,{'issue_type': 'false_positive'},This is information regarding M&A targets expected profit for the year,
+fb_2c2c6b9ac80e,guidance_change,1c933a9610dd0d08,globenewswire__80c479c772b2fb74,anonymous,True,true_positive,2025-11-17T20:44:53.387983+00:00,{},,
+fb_26850ae1f44f,guidance_change,d93fb58119e0de72,19a95a8343e8cebb,anonymous,False,false_positive,2025-11-18T08:16:22.952014+00:00,{'issue_type': 'false_positive'},Its about updating financial targets and not guidance,
+fb_22be01855396,guidance_change,0ec6a8ac274523a1,19a9ad2786570c80,anonymous,True,true_positive,2025-11-19T07:57:57.859225+00:00,{},,
+fb_b0a0824de768,guidance_change,227ffda279962c76,prnewswire__efa7e7c3e5765a1e,anonymous,False,false_positive,2025-11-19T10:45:46.487291+00:00,{'issue_type': 'false_positive'},,
+fb_ddbd5dfee70d,guidance_change,bd6bec2bce238255,globenewswire__c2980f9bc537564b,anonymous,False,false_positive,2025-11-19T10:50:55.080236+00:00,{'issue_type': 'false_positive'},This is more like a research piece or whitepaper,
+fb_f91ab268357c,guidance_change,ceff31282aef515b,globenewswire__19ea20b9a91d2b20,anonymous,True,true_positive,2025-11-21T12:32:21.507382+00:00,{},,
+fb_f6f094ea8b0d,guidance_change,8d939b0c76dd550f,19aa51b0b2149256,anonymous,False,false_positive,2025-11-21T12:35:47.763144+00:00,{'issue_type': 'false_positive'},It is a major shareholder talking about its Investment case in the company,
+fb_a246cab03fd5,guidance_change,,test_pr_12345,test_user_001,False,false_negative,2025-11-21T13:26:45.531318+00:00,"{'issue_type': 'false_negative', 'review_type': 'daily_fn_review'}",Raised FY2025 revenue guidance from $500M to $550M,fn_test_pr_12345
+fb_ad34f63124e5,guidance_change,,test_pr_67890,test_user_001,True,true_positive,2025-11-21T13:27:04.224311+00:00,"{'issue_type': 'true_negative', 'review_type': 'daily_fn_review'}","Just reporting quarterly results, no forward guidance",fn_test_pr_67890
+fb_36da916fd398,guidance_change,,prnewswire__cc12135046b10258,anonymous,True,true_positive,2025-11-21T19:44:45.312812+00:00,{},,fn_prnewswire__cc12135046b10258
+fb_4f9314552984,guidance_change,,19aa1429242cf0b7,anonymous,True,true_positive,2025-11-21T20:03:15.606036+00:00,{},,fn_19aa1429242cf0b7
+fb_8e2d30c1b80f,guidance_change,,19aa552003cd839a,anonymous,True,true_negative,2025-11-21T20:15:56.526147+00:00,{},,fn_19aa552003cd839a
+fb_80aafe02ce96,guidance_change,,globenewswire__8b671739bbf1ff9a,anonymous,True,true_negative,2025-11-22T22:52:54.312270+00:00,{},,fn_globenewswire__8b671739bbf1ff9a
+fb_5bc20bbb58eb,guidance_change,,globenewswire__768b75338245bdb4,anonymous,True,true_negative,2025-11-22T22:53:13.532808+00:00,{},,fn_globenewswire__768b75338245bdb4
+fb_cb6c423d8b9f,guidance_change,,prnewswire__a3fef8d288782e46,anonymous,True,true_negative,2025-11-22T22:53:58.087516+00:00,{},,fn_prnewswire__a3fef8d288782e46
+fb_148f048aecaf,guidance_change,,prnewswire__49b998f7a8cf9b71,anonymous,True,true_negative,2025-11-22T22:55:39.901012+00:00,{},,fn_prnewswire__49b998f7a8cf9b71
+fb_7b43c16de982,guidance_change,,prnewswire__e816e161e533c791,anonymous,True,true_negative,2025-11-22T22:56:03.209453+00:00,{},,fn_prnewswire__e816e161e533c791
+fb_cfcfc1f6d57e,guidance_change,,prnewswire__e4d411bd8b455178,anonymous,True,true_negative,2025-11-23T22:19:31.491629+00:00,{},,fn_prnewswire__e4d411bd8b455178
+fb_981e95810508,guidance_change,,globenewswire__601802119fcc1f45,anonymous,True,true_negative,2025-11-23T22:21:44.718487+00:00,{},,fn_globenewswire__601802119fcc1f45
+fb_293c823a75cf,guidance_change,,prnewswire__d6e7f025171ea53c,anonymous,True,true_negative,2025-11-23T22:22:40.668851+00:00,{},,fn_prnewswire__d6e7f025171ea53c
+fb_762db6cca556,guidance_change,,prnewswire__377541c1c5887157,anonymous,True,true_negative,2025-11-23T22:23:54.135961+00:00,{},,fn_prnewswire__377541c1c5887157
+fb_e1ec88257947,guidance_change,,prnewswire__1a57ba3fa8b7a81e,anonymous,True,true_negative,2025-11-23T22:24:51.957754+00:00,{},,fn_prnewswire__1a57ba3fa8b7a81e
+fb_79688e585c74,guidance_change,,prnewswire__cce022ffa50723cb,anonymous,True,true_negative,2025-11-23T22:27:00.757939+00:00,{},,fn_prnewswire__cce022ffa50723cb
+fb_cb915945bcd4,guidance_change,,globenewswire__9a1f9734fc597235,anonymous,True,true_negative,2025-11-23T22:27:21.117916+00:00,{},,fn_globenewswire__9a1f9734fc597235
+fb_a6e152f25727,guidance_change,,prnewswire__7d9d4d1a828c8a12,anonymous,False,false_positive,2025-11-24T08:18:37.095811+00:00,{'issue_type': 'false_positive'},Its a lawsuit redarding securities fraud. Maybe they mention that they did not provide guidance etc,201218de72984717
+fb_86baf1ced563,guidance_change,,19ab49bd6cb124ff,anonymous,True,true_positive,2025-11-24T08:20:09.378055+00:00,{},,605924ac82fe4461
+fb_edd369e474a3,guidance_change,,19ab472b457df262,anonymous,True,true_positive,2025-11-24T08:22:13.270437+00:00,{},,ce775808e1db7fe9
+fb_79d5f831d492,guidance_change,,prnewswire__e45d311b92f17f3f,anonymous,False,false_positive,2025-11-24T08:43:24.336804+00:00,{'issue_type': 'false_positive'},Securities fraud lawsuit that probably mentions guidance,a19e43d86efeab74
+fb_846b8c48314e,guidance_change,,prnewswire__ada0c0ea01b965b2,anonymous,True,true_negative,2025-11-24T22:36:22.930319+00:00,{},,fn_prnewswire__ada0c0ea01b965b2
+fb_8256ced2f1dd,guidance_change,,prnewswire__1186ff79c9815d54,anonymous,True,true_negative,2025-11-24T22:37:06.117773+00:00,{},,fn_prnewswire__1186ff79c9815d54
+fb_56fd01ef6b06,guidance_change,,19ab4fbfa570794d,anonymous,True,true_negative,2025-11-24T22:37:48.282114+00:00,{},,fn_19ab4fbfa570794d
+fb_332b24f3e4b5,guidance_change,,prnewswire__90f71bcf16ee31cb,anonymous,True,true_negative,2025-11-24T22:39:11.959426+00:00,{},,fn_prnewswire__90f71bcf16ee31cb
+fb_2629b782676a,guidance_change,,globenewswire__d6ef4f87de9347a7,anonymous,True,true_negative,2025-11-24T22:39:46.655206+00:00,{},,fn_globenewswire__d6ef4f87de9347a7
+fb_d0f1a16a3a02,guidance_change,,prnewswire__b117f63eebb837e2,anonymous,True,true_negative,2025-11-24T22:41:00.314168+00:00,{},,fn_prnewswire__b117f63eebb837e2
+fb_31510e30cf55,guidance_change,,prnewswire__b4fbe5e8526c33fb,anonymous,True,true_negative,2025-11-24T22:41:47.206004+00:00,{},,fn_prnewswire__b4fbe5e8526c33fb
+fb_135fd1863289,guidance_change,,prnewswire__1978181ed8466f53,anonymous,True,true_negative,2025-11-24T22:43:31.229509+00:00,{},,fn_prnewswire__1978181ed8466f53
+fb_380c59e74ad0,guidance_change,,prnewswire__3112a9d70933f504,anonymous,False,false_positive,2025-11-24T22:45:28.586754+00:00,{'issue_type': 'false_positive'},Its a market research report not company specific guidance ,916e47ac8e4dac95
+fb_90040302d964,guidance_change,,19ab6d092c643930,anonymous,True,true_positive,2025-11-24T22:47:57.171305+00:00,{},,7540f5487cedb9cb
+fb_ce8854ff28fa,guidance_change,,prnewswire__4ff5963546404dd9,anonymous,False,false_positive,2025-11-24T22:51:06.118950+00:00,{'issue_type': 'false_positive'},,222c27d3932d05fe
+fb_17d4fcd72523,guidance_change,,19ab9b4ad728535b,anonymous,False,false_positive,2025-11-25T08:02:57.869974+00:00,{'issue_type': 'false_positive'},This is a large order no guidance,477be066d0093d22
+fb_402026079dd9,guidance_change,,globenewswire__fc7e03af9f89ad50,anonymous,True,true_positive,2025-11-25T23:22:22.384176+00:00,{},,ceb9fdefe043eab8
+fb_07b44de468a1,guidance_change,,19abae00ff664cc6,anonymous,True,true_positive,2025-11-25T23:24:17.101680+00:00,{},,d3d77950ccb89eb7
+fb_ffc405369066,guidance_change,,19abb19c491f7a7e,anonymous,False,false_positive,2025-11-25T23:26:42.541321+00:00,{'issue_type': 'false_positive'},,dda45845fc061276
+fb_f309c81aab9a,guidance_change,,19abaee031218001,anonymous,True,true_positive,2025-11-25T23:27:48.823617+00:00,{},,29c529447666f7ad
+fb_852db475c9db,guidance_change,,globenewswire__8a616530665bea8b,anonymous,False,false_positive,2025-11-25T23:28:41.800357+00:00,{'issue_type': 'false_positive'},,462bd9111db34372
+fb_ae2e0130e3f5,guidance_change,,prnewswire__a8b06e820e4b5268,anonymous,True,true_negative,2025-11-26T08:02:44.110220+00:00,{},,fn_prnewswire__a8b06e820e4b5268
+fb_7b689c597014,guidance_change,,prnewswire__c921bf5a5ae289d5,anonymous,True,true_negative,2025-11-26T08:05:42.582737+00:00,{},,fn_prnewswire__c921bf5a5ae289d5
+fb_a56f524883d7,guidance_change,,globenewswire__5a26fbfdb24d4757,anonymous,True,true_negative,2025-11-26T08:06:35.741786+00:00,{},,fn_globenewswire__5a26fbfdb24d4757
+fb_e0dc838fd2ee,guidance_change,,globenewswire__f34a1d734df45df5,anonymous,True,true_negative,2025-11-26T08:09:06.011224+00:00,{},,fn_globenewswire__f34a1d734df45df5
+fb_6f4e76f89328,guidance_change,,globenewswire__80b779df0fc5786c,anonymous,True,true_negative,2025-11-26T08:09:31.961553+00:00,{},,fn_globenewswire__80b779df0fc5786c
+fb_81b031bb5985,guidance_change,,prnewswire__b9d30b04af8b8503,anonymous,True,true_negative,2025-11-26T08:12:58.494005+00:00,{},,fn_prnewswire__b9d30b04af8b8503
+fb_e7b6236243ab,guidance_change,,19aa122cac71e4a7,anonymous,True,true_negative,2025-11-26T08:13:49.911432+00:00,{},,fn_19aa122cac71e4a7
+fb_7b8acf8a960d,guidance_change,,prnewswire__0439bf450214ac15,anonymous,True,true_negative,2025-11-26T08:15:19.157596+00:00,{},,fn_prnewswire__0439bf450214ac15
+fb_00a50787bd30,guidance_change,,prnewswire__c5ee3a4e073d85cb,anonymous,True,true_negative,2025-11-26T08:17:46.273724+00:00,{},,fn_prnewswire__c5ee3a4e073d85cb
+fb_8a5b03914c76,guidance_change,,prnewswire__18d01f322b49671d,anonymous,True,true_negative,2025-11-26T08:19:34.172941+00:00,{},,fn_prnewswire__18d01f322b49671d
+fb_9fdde869aaff,guidance_change,,prnewswire__4e42376fc8fd14ca,anonymous,True,true_positive,2025-11-26T08:21:53.447307+00:00,{},,441a8956d5eb435a
+fb_632682877315,guidance_change,,prnewswire__1dfb4a728530bb1b,anonymous,True,true_positive,2025-11-26T08:22:50.740095+00:00,{},,2c787009c1c802b6
+fb_5d9395bd4470,guidance_change,,prnewswire__d34b0c992b655459,anonymous,True,true_positive,2025-11-26T08:23:48.089194+00:00,{},,6bf200d791f4f360
+fb_819f63459e79,guidance_change,,prnewswire__e540081240458367,anonymous,False,false_positive,2025-11-26T08:28:09.942109+00:00,{'issue_type': 'false_positive'},Its a strategic partnership announcement,d8716b004dc963d3
+fb_2a026ab26693,guidance_change,,prnewswire__ebced20c372a37fa,anonymous,False,false_positive,2025-11-26T08:28:58.457341+00:00,{'issue_type': 'false_positive'},,dcf890e00bb505c7
+fb_5e3dcb3c3422,guidance_change,,prnewswire__a466caa33e678e1d,anonymous,False,false_positive,2025-11-26T08:32:32.490082+00:00,{'issue_type': 'false_positive'},,4c9b3b0e110d40a1
+fb_6cae7a0209aa,guidance_change,,prnewswire__9e2c2ba9fb2fe45c,anonymous,False,false_positive,2025-11-26T08:33:43.564226+00:00,{'issue_type': 'false_positive'},,d70f15e5ee402618
+fb_e4806154f144,guidance_change,,globenewswire__9b22ae834573f34a,anonymous,False,false_positive,2025-11-26T08:34:30.459717+00:00,{'issue_type': 'false_positive'},,eb32f449d78cd603
+fb_9495f1451d86,guidance_change,,globenewswire__c4b7fe1495c79a64,anonymous,False,false_positive,2025-11-26T08:40:42.599996+00:00,{'issue_type': 'false_positive'},,6137fb38db08f35e
+fb_2107fc32b504,guidance_change,,globenewswire__c573c7a1303bceb5,anonymous,False,false_positive,2025-11-26T08:41:40.265923+00:00,{'issue_type': 'false_positive'},,62e8f10b05942b84
+fb_aff084cf6df8,guidance_change,,globenewswire__cb35e77917bf3e6e,anonymous,False,false_positive,2025-11-26T08:43:36.321885+00:00,{'issue_type': 'false_positive'},,055ba13a901f2d25
+fb_7ea3f17a5d00,guidance_change,,globenewswire__ce7891e900fe811a,anonymous,False,false_positive,2025-11-26T08:44:00.469313+00:00,{'issue_type': 'false_positive'},,c5b177236e6b3b3e
+fb_1cd0837ae0f6,guidance_change,,globenewswire__537c4a4fb675373b,anonymous,False,false_positive,2025-11-26T08:44:51.116105+00:00,{'issue_type': 'false_positive'},,ee976ecaed2ff818
