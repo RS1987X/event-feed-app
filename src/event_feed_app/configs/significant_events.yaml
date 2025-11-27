@@ -122,6 +122,54 @@ events:
         any:
           - '(statements?\s+that\s+are\s+not\s+historical|subject\s+to\s+risks\s+and\s+uncertainties)'
 
+      # Document-level exclusions (avoid false positives)
+      exclusions:
+        # Securities fraud lawsuits - law firm announcements about class actions
+        securities_lawsuits:
+          indicators:
+            - "class action"
+            - "securities fraud"
+            - "securities litigation"
+            - "investor rights litigation"
+            - "shareholder rights litigation"
+          law_firms:
+            - "rosen law firm"
+            - "schall law firm"
+            - "kahn swick"
+            - "bragar eagel"
+            - "faruqi"
+            - "djs law group"
+            - "robbins geller"
+            - "pomerantz"
+            - "glancy prongay"
+          logic: "indicator AND law_firm"  # Require both
+
+        # Market research reports - industry forecasts, not company guidance
+        market_research:
+          indicators:
+            - "market research"
+            - "market report"
+            - "market forecast"
+            - "market analysis"
+            - "market intelligence"
+            - "market study"
+            - "research report"
+            - "industry report"
+            - "compound annual growth rate"
+            - "cagr"
+          firms:
+            - "verified market research"
+            - "research and markets"
+            - "technavio"
+            - "mordor intelligence"
+            - "grand view research"
+            - "fortune business insights"
+            - "marketsandmarkets"
+            - "frost & sullivan"
+            - "idc"
+            - "gartner"
+          logic: "2+ indicators OR (indicator AND firm)"  # Multiple indicators or firm mention
+
       suppressors:
         analyst:
           any: ['\bconsensus\b|\bBloomberg\b|\bFactSet\b|\bRefinitiv(e)?\b']

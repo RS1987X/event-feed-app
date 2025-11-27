@@ -626,6 +626,10 @@ class GuidanceChangePlugin(EventPlugin):
         self.rx_sup_ma      = _compile_union_from_dict(sups.get("ma"))
         self.rx_sup_debt    = _compile_union_from_dict(sups.get("debt"))
 
+        # -------- Document-level exclusions --------
+        self.exclusions = patterns_cfg.get("exclusions") or {}
+        _dprint(f"[config] Loaded exclusions: {list(self.exclusions.keys())}")
+
         # -------- Term lists (with sensible defaults) --------
         def _get_terms(key: str, fallback: list[str]) -> list[str]:
             vals = terms_cfg.get(key)
@@ -743,6 +747,50 @@ class GuidanceChangePlugin(EventPlugin):
             r["same_sentence"] = bool(r.get("same_sentence", True))
             r["require_period_token"] = bool(r.get("require_period_token", True))
             self.text_stub_rules.append(r)
+
+    def _should_exclude_document(self, text: str) -> bool:
+        """
+        Check if document should be excluded based on configured exclusion rules.
+        
+        Args:
+            text: Full document text (title + body)
+            
+        Returns:
+            True if document should be excluded, False otherwise
+        """
+        if not self.exclusions:
+            return False
+            
+        text_lower = text.lower()
+        
+        # Check securities lawsuits exclusion
+        lawsuit_cfg = self.exclusions.get("securities_lawsuits", {})
+        if lawsuit_cfg:
+            indicators = [ind.lower() for ind in lawsuit_cfg.get("indicators", [])]
+            law_firms = [firm.lower() for firm in lawsuit_cfg.get("law_firms", [])]
+            
+            has_indicator = any(ind in text_lower for ind in indicators)
+            has_law_firm = any(firm in text_lower for firm in law_firms)
+            
+            if has_indicator and has_law_firm:
+                _dprint("[exclude] Securities fraud lawsuit detected")
+                return True
+        
+        # Check market research exclusion
+        research_cfg = self.exclusions.get("market_research", {})
+        if research_cfg:
+            indicators = [ind.lower() for ind in research_cfg.get("indicators", [])]
+            firms = [firm.lower() for firm in research_cfg.get("firms", [])]
+            
+            indicator_count = sum(1 for ind in indicators if ind in text_lower)
+            has_firm = any(firm in text_lower for firm in firms)
+            
+            # Logic: "2+ indicators OR (indicator AND firm)"
+            if indicator_count >= 2 or (indicator_count >= 1 and has_firm):
+                _dprint("[exclude] Market research report detected")
+                return True
+        
+        return False
 
 
     # in the plugin class
@@ -1739,6 +1787,11 @@ class GuidanceChangePlugin(EventPlugin):
         # ---------- 1) Build text, tokenize once ----------
         text = f"{doc.get('title','')}\n{doc.get('body','')}"
         head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
+        
+        # ---------- Document-level exclusions (early exit) ----------
+        if self._should_exclude_document(text):
+            return
+        
         sents = list(_sentences_with_spans(text))
         toks_spans = [(m.group(0), m.span()) for m in _TOKEN_RX.finditer(norm(text))]
         toks = [t for t, _ in toks_spans]

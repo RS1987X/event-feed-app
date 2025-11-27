@@ -462,6 +462,9 @@ class GuidanceChangePlugin(EventPlugin):
 
         self.text_stub_rules: list[dict] = []
 
+        # Document-level exclusions
+        self.exclusion_rules: dict = {}
+
     def configure(self, cfg: Optional[dict]) -> None:
         """
         Ingest YAML config, compile regexes, and normalize proximity/numeric rules.
@@ -674,11 +677,65 @@ class GuidanceChangePlugin(EventPlugin):
             r["require_period_token"] = bool(r.get("require_period_token", True))
             self.text_stub_rules.append(r)
 
+        # -------- Document-level exclusions --------
+        exclusions_cfg = patterns_cfg.get("exclusions") or {}
+        self.exclusion_rules = {}
+        
+        for exc_name, exc_config in exclusions_cfg.items():
+            rule = {
+                "indicators": [ind.lower() for ind in (exc_config.get("indicators") or [])],
+                "logic": exc_config.get("logic", "indicator")
+            }
+            
+            # Handle different secondary term keys (law_firms, firms, etc.)
+            for key in ["law_firms", "firms", "companies", "terms"]:
+                if key in exc_config:
+                    rule["secondary"] = [term.lower() for term in exc_config[key]]
+                    break
+            
+            self.exclusion_rules[exc_name] = rule
+
 
     # in the plugin class
     def detect(self, doc):
         # use v3 by default
         yield from self._detect_v3(doc)
+        
+    def _should_exclude(self, text_lower: str) -> bool:
+        """
+        Check if document should be excluded based on configured exclusion rules.
+        
+        Args:
+            text_lower: Lowercase document text
+            
+        Returns:
+            True if document should be excluded, False otherwise
+        """
+        for exc_name, rule in self.exclusion_rules.items():
+            indicators = rule.get("indicators", [])
+            secondary = rule.get("secondary", [])
+            logic = rule.get("logic", "indicator")
+            
+            has_indicator = sum(1 for ind in indicators if ind in text_lower)
+            has_secondary = any(term in text_lower for term in secondary) if secondary else False
+            
+            # Apply configured logic
+            if "AND" in logic.upper():
+                # Require both indicator and secondary term
+                if has_indicator > 0 and has_secondary:
+                    _dprint(f"[exclude] {exc_name} detected (AND logic)")
+                    return True
+            elif "OR" in logic.upper() and ("2+" in logic or "MULTIPLE" in logic.upper()):
+                # Require multiple indicators OR (indicator + secondary)
+                if has_indicator >= 2 or (has_indicator >= 1 and has_secondary):
+                    _dprint(f"[exclude] {exc_name} detected (2+ indicators OR indicator+secondary)")
+                    return True
+            elif has_indicator > 0:
+                # Simple indicator presence
+                _dprint(f"[exclude] {exc_name} detected")
+                return True
+        
+        return False
         
         # if getattr(self, "_use_v2", False):
         #     yield from self._detect_v2(doc)
@@ -1663,6 +1720,12 @@ class GuidanceChangePlugin(EventPlugin):
         # ---------- 1) Build text, tokenize once ----------
         text = f"{doc.get('title','')}\n{doc.get('body','')}"
         head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
+        
+        # ---------- Document-level exclusions (early exit) ----------
+        text_lower = text.lower()
+        if self._should_exclude(text_lower):
+            return
+        
         sents = list(_sentences_with_spans(text))
         toks_spans = [(m.group(0), m.span()) for m in _TOKEN_RX.finditer(norm(text))]
         toks = [t for t, _ in toks_spans]
