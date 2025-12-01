@@ -132,6 +132,7 @@ events:
             - "securities litigation"
             - "investor rights litigation"
             - "shareholder rights litigation"
+            - "securities law violations"
           law_firms:
             - "rosen law firm"
             - "schall law firm"
@@ -155,8 +156,8 @@ events:
             - "market study"
             - "research report"
             - "industry report"
-            - "compound annual growth rate"
-            - "cagr"
+            - "market size"
+            - "market value"
           firms:
             - "verified market research"
             - "research and markets"

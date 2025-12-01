@@ -568,12 +568,53 @@ user_defaults:
 
 ---
 
+## Known Limitations and Edge Cases
+
+### Qualitative Market Commentary (Swedish)
+
+**Pattern:** CEO commentary in Swedish quarterly reports about general market conditions using vague language about distant future.
+
+**Example:** BMST Delårsrapport (Q3 2025)
+- CEO states: "marknaden bedöms därför ta fart först senare delen av nästa år" (market assessed to take off only in latter part of next year)
+- Uses "bedöms" (assessed) - not currently in Swedish forward-cue terms
+- No formal guidance keywords ("prognos", "utsikter")
+- **No quantified metrics or financial measures** - purely qualitative market view
+- Qualitative macro commentary vs. company-specific financial guidance
+
+**Technical Note:** 
+- "bedöms" (assessed/judged) could be added to Swedish `fwd_cue.terms.sv` for broader coverage
+- However, this PR correctly not flagged due to **lack of any quantified metric** (revenue, EBITDA, margin, growth rate, etc.)
+- Guidance detection requires both forward-looking language AND measurable financial metrics
+- Adding "bedöms" alone won't cause false positives since metric extraction would still fail
+
+**Decision:** Intentionally NOT detected
+- Vague language about general market conditions without quantified guidance
+- Distant future timeframe (12+ months)
+- Macro market outlook vs. specific company financial targets
+- Missing numeric metrics required for actionable guidance
+
+**Alternative Detection:** These types of statements may be better suited for a future "Future Outlook Statements" signal using LLM extraction (see SIGNAL_ROADMAP.md), which would capture qualitative management sentiment without requiring numeric metrics.
+
+### Operational Policy Changes
+
+**Pattern:** Business policy updates that don't involve financial guidance.
+
+**Example:** Illinois Mutual DI Non-Medical Limits
+- Announcement of increased non-medical underwriting limits
+- Zero guidance keywords present
+- Operational/product change, not financial outlook
+
+**Decision:** Correctly NOT detected - these are not guidance changes.
+
+---
+
 ## Success Metrics
 
 1. **Detection Accuracy**
    - Precision: % of alerts that are truly significant guidance changes
    - Recall: % of actual guidance changes that trigger alerts
    - Target: >90% precision, >85% recall
+   - **Current Performance:** 91% detection rate on validated true positives
 
 2. **Delivery Performance**
    - Latency: Time from ingestion to alert delivery

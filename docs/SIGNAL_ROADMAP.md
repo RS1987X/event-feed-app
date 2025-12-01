@@ -668,6 +668,229 @@ triggers:
 
 ---
 
+### 🎯 Future Outlook Statements (`future_outlook_llm`)
+
+**Priority**: High  
+**Description**: Use LLM to extract and track company management's general expectations and outlook statements about the near-term future, creating contextual memory for evaluating subsequent quarterly reports
+
+**Key Use Cases**:
+- **Baseline expectation setting** - Capture what management says about near-term outlook
+- **Quarter-over-quarter comparison** - Compare actual results against previously stated expectations
+- **Sentiment tracking** - Monitor changes in management tone and confidence over time
+- **Early warning signals** - Detect when reality diverges from prior outlook statements
+- **Guided vs unguided companies** - Track qualitative expectations for companies without formal guidance
+- **Business conditions commentary** - Extract views on market conditions, demand trends, competitive dynamics
+
+**Detection Patterns**:
+```yaml
+triggers:
+  outlook_language:
+    - "expect[ing|s] [for|in] the [coming|next|upcoming] [quarter|year]"
+    - "anticipate.*[Q1|Q2|Q3|Q4|next quarter]"
+    - "outlook for.*remains"
+    - "we see.*[going forward|ahead|in the future]"
+    - "guidance.*[year|quarter]"
+    
+  forward_statements:
+    - "looking ahead"
+    - "as we move into"
+    - "for the remainder of"
+    - "near-term outlook"
+    - "our view [is|for]"
+    
+  business_conditions:
+    - "demand trends"
+    - "market conditions"
+    - "competitive environment"
+    - "macroeconomic.*expect"
+    - "industry dynamics"
+    
+  sentiment_indicators:
+    - "optimistic|confident|encouraged|positive"
+    - "cautious|uncertain|challenging|headwinds"
+    - "improving|strengthening|accelerating"
+    - "softening|weakening|deteriorating"
+```
+
+**LLM Extraction Schema**:
+- `company`: Company ticker/name
+- `statement_date`: Date of press release/announcement
+- `report_period`: Quarter/year being reported (e.g., Q3 2024)
+- `outlook_period`: Period outlook refers to (e.g., Q4 2024, FY 2025)
+- `outlook_text_raw`: Exact quote from management
+- `outlook_summary`: LLM-generated concise summary
+- `outlook_topics`: List of topics mentioned (revenue, margins, demand, capex, etc.)
+- `sentiment_score`: -1.0 to +1.0 (negative to positive)
+- `confidence_level`: high | medium | low (based on language used)
+- `key_drivers`: Specific factors mentioned (new product launch, capacity expansion, etc.)
+- `risks_mentioned`: Headwinds or challenges called out
+- `opportunities_mentioned`: Positive catalysts or tailwinds identified
+- `context_for_next_quarter`: Stored for comparison when next earnings released
+
+**Signal Opportunities**:
+- **Outlook vs. reality divergence**: Compare Q2 results to Q1 outlook statements - flag material misses
+- **Deteriorating sentiment**: Track declining confidence over consecutive quarters
+- **Improving sentiment**: Identify inflection points in management tone
+- **Unguided company insights**: Extract forward-looking statements from companies without formal guidance
+- **Early warning system**: Outlook weakening before formal guidance cut
+- **Consistency tracking**: Monitor if management's outlook is reliably accurate or overly optimistic
+- **Competitive intelligence**: Compare outlook across peer companies in same sector
+- **Macro trend detection**: Aggregate outlook statements to identify sector-wide trends
+
+**Implementation Notes**:
+- Requires LLM API integration (GPT-4, Claude, or similar)
+- Store historical outlook statements in database with quarterly snapshots
+- Build comparison tool to juxtapose Q(n) results against Q(n-1) outlook
+- Extract numerical ranges when mentioned (e.g., "mid-single digit growth")
+- Distinguish between formal guidance and general outlook commentary
+- Track consistency: does management deliver what they outlook?
+- Generate alerts when subsequent results materially diverge from prior outlook
+- Particularly valuable for small-cap companies that don't provide formal guidance
+
+**Prompt Engineering Approach**:
+```
+Extract forward-looking statements from this earnings press release.
+Focus on management's expectations for the NEXT quarter/year.
+
+Return JSON:
+{
+  "outlook_period": "Q4 2024",
+  "summary": "Management expects continued demand strength...",
+  "sentiment": 0.6,
+  "confidence": "high",
+  "key_drivers": ["new product ramp", "capacity expansion"],
+  "risks": ["supply chain constraints", "FX headwinds"],
+  "opportunities": ["new market entry", "pricing power"]
+}
+```
+
+**Example Use Case**:
+1. **Q1 Report (Feb)**: CEO states "We expect demand to remain robust through Q2 with continued double-digit growth"
+2. **Q2 Report (May)**: Company reports flat growth
+3. **Alert Generated**: "Outlook miss - Q1 outlook called for double-digit growth, Q2 delivered 0% growth"
+4. **Action**: Investigate what changed, potential sell signal
+
+---
+
+### 🎯 Significant Orders/Contracts (`significant_orders`)
+
+**Priority**: High  
+**Description**: Detect and contextualize significant customer orders, contracts, and purchase agreements, interpreting the materiality based on order size, customer identity, and strategic validation of company's technology/products
+
+**Key Use Cases**:
+- **Large contract announcements** - Major orders that move the needle on revenue
+- **Strategic customer wins** - Blue-chip customers validating product/technology
+- **Technology validation** - First orders from new customer segments proving product-market fit
+- **Repeat/expansion orders** - Existing customers increasing commitment
+- **Government/military contracts** - High-value, long-term government orders
+- **International expansion** - First orders from new geographic markets
+- **Competitive wins** - Taking business from competitors or displacing incumbents
+
+**Detection Patterns**:
+```yaml
+triggers:
+  order_announcements:
+    - "received [an order|a contract|purchase order]"
+    - "awarded [a|contract for] [AMOUNT]"
+    - "signed [agreement|contract] worth"
+    - "order valued at [AMOUNT]"
+    - "purchase order.*[AMOUNT|units]"
+    - "multi-[year|million] contract"
+    
+  customer_types:
+    - "[Fortune 500|F500|major|leading|global] [company|customer|corporation]"
+    - "[named|identified] customer"
+    - "unnamed.*customer"
+    - "government contract"
+    - "military.*contract"
+    - "defense.*order"
+    
+  order_significance:
+    - "largest order [to date|in company history]"
+    - "first order from"
+    - "initial order"
+    - "follow-on order"
+    - "repeat order"
+    - "production order"
+    - "commercial order"
+    
+  technology_validation:
+    - "validates [our|the] technology"
+    - "commercial validation"
+    - "production readiness"
+    - "successful pilot"
+    - "transitioned from pilot to production"
+    - "de-risked [our|the] technology"
+```
+
+**LLM Contextualization Schema**:
+- `order_value`: Dollar value or unit count
+- `customer_name`: Customer identity (or "undisclosed Fortune 500")
+- `customer_industry`: Industry/sector of customer
+- `customer_prominence`: Fortune 500 | major_player | government | startup | undisclosed
+- `order_type`: initial | repeat | expansion | pilot | production | multi-year
+- `order_significance_score`: 0-10 based on size, customer, strategic value
+- `revenue_context`: Percentage of annual/quarterly revenue (if calculable)
+- `technology_validation_level`: none | pilot_validation | commercial_validation | competitive_displacement
+- `strategic_implications`: LLM-generated assessment of strategic importance
+- `product_category`: Which product line/technology
+- `competitive_context`: Took from competitor, new market entry, etc.
+- `deployment_timeline`: Expected delivery/implementation dates
+- `expansion_potential`: Likelihood of follow-on orders or upsell
+
+**Signal Opportunities**:
+- **Materiality scoring**: Orders >5% of annual revenue = high materiality
+- **Customer quality**: Fortune 500 customer orders signal product validation
+- **Technology de-risking**: First production order after pilots reduces execution risk
+- **Repeat order velocity**: Increasing order frequency = strong product-market fit
+- **Competitive displacement**: Taking business from established players = market share gains
+- **Government contracts**: Often multi-year, high-margin, sticky revenue
+- **Geographic expansion**: First Asian/European customers = TAM expansion
+- **Pilot-to-production conversion**: High conversion rate = product validation
+
+**Implementation Notes**:
+- Use LLM to parse order value (varies by format: "$5M", "5 million", "valued at 5M")
+- Extract customer name if disclosed, flag Fortune 500 mentions
+- Calculate order as % of company market cap or annual revenue for materiality
+- Track order velocity: frequency and size trends over time
+- Distinguish between pilot/trial orders vs. production commitments
+- Monitor conversion from pilot to production orders (strong signal)
+- Cross-reference with company financials to assess impact
+- Flag "undisclosed major customer" patterns (often indicates strategic importance)
+
+**LLM Contextualization Prompt**:
+```
+Analyze this press release announcing a customer order/contract:
+1. Extract order value (dollars or units)
+2. Identify customer (name, industry, size/prominence)
+3. Assess order significance:
+   - Is this a first order, repeat, or expansion?
+   - Does it validate the company's technology?
+   - What % of annual revenue does it represent?
+   - Is the customer a strategic reference (Fortune 500, government)?
+4. Rate materiality 0-10
+5. Identify competitive implications (won from competitor, new market, etc.)
+
+Return structured JSON with fields: order_value, customer_name, customer_type, 
+order_type, technology_validation, materiality_score, strategic_implications
+```
+
+**Example High-Impact Scenarios**:
+1. **$50M order from Fortune 100 company** - Validates product, provides reference customer, material revenue
+2. **First production order after 2-year pilot** - De-risks technology, proves commercial viability
+3. **Government contract worth 15% of market cap** - Transformational for small companies
+4. **Repeat order 3x larger than initial order** - Proves strong product-market fit, expanding usage
+5. **Order from unnamed "major automotive OEM"** - Strategic customer likely means Tesla/GM/Ford level
+
+**Materiality Thresholds**:
+- **Order size**: >10% annual revenue = very material, 5-10% = material, <5% = incremental
+- **Customer quality**: Fortune 500 > major player > undisclosed > small customer
+- **Order type**: Production > repeat > expansion > pilot > initial
+- **Strategic value**: Competitive win > new market > repeat customer
+- **Technology validation**: Pilot-to-production conversion very high signal
+
+---
+
 ## Implementation Checklist
 
 When implementing a new signal type:
