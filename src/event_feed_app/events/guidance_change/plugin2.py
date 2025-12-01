@@ -178,16 +178,40 @@ def _is_num(x):
     except Exception:
         return False
 
-def _norm_period(text: str) -> str:
+def _norm_period(text: str, reference_year: Optional[int] = None) -> str:
+    """Extract and normalize period from text, with year validation."""
     m = PERIOD.search(text)
     if not m:
         return "UNKNOWN"
     g = m.groupdict()
-    if g.get("q") and g.get("y2"): return f"Q{g['q']}-{g['y2']}"
-    if g.get("h") and g.get("y3"): return f"H{g['h']}-{g['y3']}"
-    y = g.get("y")
-    if y: return f"FY{y}"
-    if re.search(r"full[-\s]?year|helår", text, re.I): return "FY-UNKNOWN"
+    
+    # Extract year and validate
+    year = g.get("y") or g.get("y2") or g.get("y3")
+    if year and not _is_valid_guidance_year(year, reference_year):
+        # Invalid year - try to find another match
+        for m2 in PERIOD.finditer(text):
+            g2 = m2.groupdict()
+            year2 = g2.get("y") or g2.get("y2") or g2.get("y3")
+            if year2 and _is_valid_guidance_year(year2, reference_year):
+                # Found a valid year
+                if g2.get("q") and g2.get("y2"):
+                    return f"Q{g2['q']}-{g2['y2']}"
+                if g2.get("h") and g2.get("y3"):
+                    return f"H{g2['h']}-{g2['y3']}"
+                if g2.get("y"):
+                    return f"FY{g2['y']}"
+        # No valid year found
+        return "UNKNOWN"
+    
+    # Valid year found in first match
+    if g.get("q") and g.get("y2"):
+        return f"Q{g['q']}-{g['y2']}"
+    if g.get("h") and g.get("y3"):
+        return f"H{g['h']}-{g['y3']}"
+    if year:
+        return f"FY{year}"
+    if re.search(r"full[-\s]?year|helår", text, re.I):
+        return "FY-UNKNOWN"
     return "PERIOD-UNKNOWN"
 
 
@@ -411,30 +435,84 @@ def _span_in_sentence(span: tuple[int,int], sent_span: tuple[int,int]) -> bool:
     (a, b), (s, e) = span, sent_span
     return a >= s and b <= e
 
-def _norm_period_sentence(s: str) -> str:
+def _norm_period_sentence(s: str, reference_year: Optional[int] = None) -> str:
+    """Extract and normalize period from a sentence, with year validation."""
     m = PERIOD.search(s)
     if not m:
         return "UNKNOWN"
     g = m.groupdict()
-    if g.get("q") and g.get("y2"): return f"Q{g['q']}-{g['y2']}"
-    if g.get("h") and g.get("y3"): return f"H{g['h']}-{g['y3']}"
-    y = g.get("y")
-    if y: return f"FY{y}"
-    if re.search(r"full[-\s]?year|helår", s, re.I): return "FY-UNKNOWN"
+    
+    # Extract year and validate
+    year = g.get("y") or g.get("y2") or g.get("y3")
+    if year and not _is_valid_guidance_year(year, reference_year):
+        # Invalid year - try to find another match in this sentence
+        for m2 in PERIOD.finditer(s):
+            g2 = m2.groupdict()
+            year2 = g2.get("y") or g2.get("y2") or g2.get("y3")
+            if year2 and _is_valid_guidance_year(year2, reference_year):
+                # Found a valid year
+                if g2.get("q") and g2.get("y2"):
+                    return f"Q{g2['q']}-{g2['y2']}"
+                if g2.get("h") and g2.get("y3"):
+                    return f"H{g2['h']}-{g2['y3']}"
+                if g2.get("y"):
+                    return f"FY{g2['y']}"
+        # No valid year found
+        return "UNKNOWN"
+    
+    # Valid year found
+    if g.get("q") and g.get("y2"):
+        return f"Q{g['q']}-{g['y2']}"
+    if g.get("h") and g.get("y3"):
+        return f"H{g['h']}-{g['y3']}"
+    if year:
+        return f"FY{year}"
+    if re.search(r"full[-\s]?year|helår", s, re.I):
+        return "FY-UNKNOWN"
     return "PERIOD-UNKNOWN"
 
-def _period_from_near_span(text, span, win=160):
+def _is_valid_guidance_year(year_str: str, reference_year: Optional[int] = None) -> bool:
+    """
+    Validate if a year is plausible for guidance (not historical data, addresses, etc.).
+    Guidance is typically for current year -1 to +2 years.
+    """
+    try:
+        year = int(year_str)
+        if reference_year is None:
+            from datetime import datetime
+            reference_year = datetime.now().year
+        
+        # Allow current year ± 2 years (e.g., for 2025: 2023-2027)
+        min_year = reference_year - 2
+        max_year = reference_year + 2
+        return min_year <= year <= max_year
+    except (ValueError, TypeError):
+        return False
+
+def _period_from_near_span(text, span, win=160, reference_year: Optional[int] = None):
+    """Extract period from text near a span, with year validation."""
     s, e = span
     lo = max(0, s - win); hi = min(len(text), e + win)
     seg = text[lo:hi]
-    m = re.search(r'\bFY[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"FY{m.group(1)}"
-    m = re.search(r'\b(Q[1-4])[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"{m.group(1).upper()}-{m.group(2)}"
-    m = re.search(r'\b(H[12])[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"{m.group(1).upper()}-{m.group(2)}"
-    m = re.search(r'\b((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"FY{m.group(1)}"
+    
+    # Try explicit FY/Q/H formats first (more reliable)
+    m = re.search(r'\bFY[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(1), reference_year):
+        return f"FY{m.group(1)}"
+    
+    m = re.search(r'\b(Q[1-4])[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(2), reference_year):
+        return f"{m.group(1).upper()}-{m.group(2)}"
+    
+    m = re.search(r'\b(H[12])[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(2), reference_year):
+        return f"{m.group(1).upper()}-{m.group(2)}"
+    
+    # Fallback: bare year (least reliable, only if valid)
+    m = re.search(r'\b(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(1), reference_year):
+        return f"FY{m.group(1)}"
+    
     return None
 
 def _period_from_doc(doc):
@@ -1783,10 +1861,25 @@ class GuidanceChangePlugin(EventPlugin):
         and the sentence is past-looking (rx_expected_past), so present/future “expect” remains.
         """
         import re
+        from datetime import datetime
 
         # ---------- 1) Build text, tokenize once ----------
         text = f"{doc.get('title','')}\n{doc.get('body','')}"
         head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
+        
+        # Extract reference year from document for period validation
+        reference_year = None
+        release_date = doc.get('release_date')
+        if release_date:
+            try:
+                if isinstance(release_date, str):
+                    reference_year = int(release_date[:4])
+                elif hasattr(release_date, 'year'):
+                    reference_year = release_date.year
+            except (ValueError, TypeError):
+                pass
+        if reference_year is None:
+            reference_year = datetime.now().year
         
         # ---------- Document-level exclusions (early exit) ----------
         if self._should_exclude_document(text):

@@ -35,7 +35,7 @@ class GuidanceEventSchema:
             # Parametrization (core signal data)
             ("metric", pa.string()),                      # revenue, ebitda, margin, eps, etc.
             ("metric_kind", pa.string()),                 # level, growth, margin
-            ("period", pa.string()),                      # FY2025, Q3-2025, FY2025-FY2027
+            ("period", pa.string()),                      # FY2025, Q3-2025, H1-2026 (single period)
             ("value_low", pa.float64()),                  # Lower bound of range
             ("value_high", pa.float64()),                 # Upper bound of range
             ("unit", pa.string()),                        # ccy, pct, text
