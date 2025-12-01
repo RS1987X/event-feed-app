@@ -12,6 +12,8 @@ import os
 from urllib.parse import quote_plus
 
 from event_feed_app.events.registry import get_plugin
+from event_feed_app.signals.store import SignalStore
+from event_feed_app.signals.schema import GuidanceEventSchema
 from .store import AlertStore
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,8 @@ class GuidanceAlertDetector:
         self,
         min_significance: float = 0.7,
         store: Optional[AlertStore] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        signal_store: Optional[SignalStore] = None
     ):
         """
         Initialize the guidance alert detector.
@@ -38,11 +41,14 @@ class GuidanceAlertDetector:
             min_significance: Minimum significance score (0-1) to trigger an alert
             store: AlertStore instance for persisting state (optional)
             config: Additional configuration (optional)
+            signal_store: SignalStore for writing structured signals (optional)
         """
         self.guidance_plugin = get_plugin("guidance_change")
         self.min_significance = min_significance
         self.store = store or AlertStore()
+        self.signal_store = signal_store or SignalStore()
         self.config = config or {}
+        self.write_signals = config.get("write_signals", True)  # Enable signal writing by default
         
         # Configure the plugin if config provided
         if self.config.get("guidance_plugin_config"):
@@ -221,6 +227,11 @@ class GuidanceAlertDetector:
                 f"Alert generated: {alert['alert_id']} for {alert.get('company_name', 'unknown')} "
                 f"with {len(guidance_items)} guidance items (max_score={max_score:.3f})"
             )
+            
+            # Write to new signals storage (Parquet)
+            if self.write_signals:
+                self._write_signals_to_storage(doc, normalized_doc, guidance_items, alert)
+            
             return [alert]
         
         return []
@@ -577,11 +588,93 @@ class GuidanceAlertDetector:
             return None
     
     def _save_prior_state(self, prior_key: tuple, candidate: Dict[str, Any]):
-        """Save candidate as new prior state for future comparisons."""
+        """Save current state for future comparisons."""
         if not prior_key or not self.store:
             return
         
         try:
             self.store.save_prior_state(prior_key, candidate)
         except Exception as e:
-            logger.error(f"Failed to save prior state for {prior_key}: {e}")
+            logger.warning(f"Failed to save prior state for {prior_key}: {e}")
+    
+    def _write_signals_to_storage(
+        self,
+        orig_doc: Dict[str, Any],
+        normalized_doc: Dict[str, Any],
+        guidance_items: List[Dict[str, Any]],
+        alert: Dict[str, Any]
+    ):
+        """
+        Write individual events and aggregated alert to signals storage (Parquet).
+        
+        Args:
+            orig_doc: Original document dict
+            normalized_doc: Normalized document for plugin
+            guidance_items: List of dicts with keys: candidate, comparison, score, features
+            alert: Aggregated alert from _build_aggregated_alert()
+        """
+        try:
+            # Extract common context
+            press_release_id = orig_doc.get("press_release_id", orig_doc.get("id", "unknown"))
+            alert_id = alert.get("alert_id")
+            company_id = normalized_doc.get("company_id", "unknown")
+            company_name = normalized_doc.get("company_name", "Unknown Company")
+            detected_at = alert.get("detected_at")
+            press_release_date = orig_doc.get("release_date", orig_doc.get("timestamp"))
+            source_url = alert.get("metadata", {}).get("press_release_url")
+            source_type = orig_doc.get("source_type")
+            
+            # Build event records for each guidance item
+            events = []
+            for idx, item in enumerate(guidance_items):
+                candidate = item["candidate"]
+                comparison = item["comparison"]
+                score = item["score"]
+                
+                # Generate unique event ID
+                event_id = f"{press_release_id}_{candidate.get('metric', 'unknown')}_{candidate.get('period', 'unknown')}_{idx}"
+                
+                # Extract text snippet (limited to 200 chars)
+                text_snippet = candidate.get("_trigger_match", "")
+                if not text_snippet:
+                    # Fallback to body excerpt
+                    body = normalized_doc.get("body", "")
+                    text_snippet = body[:200] if body else ""
+                
+                # Build context dict
+                context = {
+                    "event_id": event_id,
+                    "press_release_id": press_release_id,
+                    "alert_id": alert_id,
+                    "company_id": company_id,
+                    "company_name": company_name,
+                    "detected_at": detected_at,
+                    "comparison": comparison,
+                    "confidence": score,
+                    "text_snippet": text_snippet,
+                    "press_release_date": press_release_date,
+                    "source_url": source_url,
+                    "source_type": source_type,
+                }
+                
+                # Convert to schema-compliant dict
+                event_dict = GuidanceEventSchema.event_to_dict(candidate, context)
+                events.append(event_dict)
+            
+            # Write individual events to Parquet
+            if events:
+                self.signal_store.write_events(events)
+                logger.info(f"Wrote {len(events)} events to signals storage")
+            
+            # Write aggregated alert to Parquet
+            # Need to add company_id to alert dict for schema compatibility
+            alert_with_company = dict(alert)
+            alert_with_company["company_id"] = company_id
+            
+            self.signal_store.write_aggregated_alert(alert_with_company)
+            logger.info(f"Wrote aggregated alert {alert_id} to signals storage")
+            
+        except Exception as e:
+            logger.error(f"Failed to write signals to storage: {e}", exc_info=True)
+            # Don't fail the entire detection if signal write fails
+
