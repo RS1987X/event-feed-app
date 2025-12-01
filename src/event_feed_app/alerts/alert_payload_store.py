@@ -135,3 +135,76 @@ class AlertPayloadStore:
         except Exception as e:
             logger.error(f"Failed to retrieve alert payload from GCS: {e}", exc_info=True)
             return None
+    
+    def get_by_press_release_id(
+        self, 
+        press_release_id: str, 
+        signal_type: Optional[str] = None,
+        max_days: int = 90
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve alert payload by press release ID.
+        
+        Useful for feedback analysis when you have the press_release_id
+        but not the alert_id (e.g., when investigating false negatives).
+        
+        Args:
+            press_release_id: Press release identifier
+            signal_type: Optional signal type to narrow search (e.g., "guidance_change")
+                        If None, searches all signal types
+            max_days: Maximum number of days of files to search (default: 90)
+            
+        Returns:
+            Alert payload dict or None if not found
+        """
+        try:
+            import gcsfs
+            from datetime import datetime, timedelta, timezone
+            
+            fs = gcsfs.GCSFileSystem()
+            
+            # Determine search patterns
+            if signal_type:
+                patterns = [f"{self.payload_root}/signal_type={signal_type}/*.jsonl"]
+            else:
+                # Search all signal types
+                try:
+                    signal_dirs = fs.ls(self.payload_root)
+                    patterns = [f"{dir_path}/*.jsonl" for dir_path in signal_dirs]
+                except:
+                    # Fallback: common signal types
+                    patterns = [
+                        f"{self.payload_root}/signal_type=guidance_change/*.jsonl",
+                        f"{self.payload_root}/signal_type=earnings_report/*.jsonl",
+                    ]
+            
+            # Collect all matching files
+            all_files = []
+            for pattern in patterns:
+                files = fs.glob(pattern)
+                all_files.extend(files)
+            
+            if not all_files:
+                logger.info(f"No payload files found for search")
+                return None
+            
+            # Search through files (newest first)
+            for file_path in sorted(all_files, reverse=True):
+                try:
+                    with fs.open(f"gs://{file_path}", "r") as f:
+                        for line in f:
+                            if line.strip():
+                                payload = json.loads(line)
+                                if payload.get("press_release_id") == press_release_id:
+                                    logger.info(f"Found alert payload for PR {press_release_id} in {file_path}")
+                                    return payload
+                except Exception as e:
+                    logger.warning(f"Error reading file {file_path}: {e}")
+                    continue
+            
+            logger.info(f"No alert payload found for press_release_id: {press_release_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve alert by press_release_id from GCS: {e}", exc_info=True)
+            return None
