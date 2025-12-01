@@ -186,7 +186,12 @@ class SignalStore:
         
         # Read Parquet files
         try:
-            df = pd.read_parquet(paths[0] if len(paths) == 1 else paths)
+            if len(paths) == 1:
+                df = pd.read_parquet(paths[0])
+            else:
+                # Read multiple files and concatenate
+                dfs = [pd.read_parquet(p) for p in paths]
+                df = pd.concat(dfs, ignore_index=True)
             
             # Filter by company
             df = df[df["company_id"] == company_id]

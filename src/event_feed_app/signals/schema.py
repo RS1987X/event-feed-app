@@ -185,7 +185,7 @@ class AggregatedAlertSchema:
             "press_release_id": alert.get("event_id"),  # Note: event_id is actually press_release_id
             "company_id": alert.get("company_id"),  # May need to extract from metadata
             "company_name": alert.get("company_name"),
-            "detected_at": datetime.fromisoformat(alert.get("detected_at")),
+            "detected_at": datetime.fromisoformat(alert.get("detected_at") or datetime.utcnow().isoformat()),
             
             "event_count": alert.get("guidance_count", 0),
             "max_confidence": alert.get("significance_score", 0.0),
