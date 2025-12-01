@@ -37,11 +37,14 @@ def test_signal_writing():
     # Load config
     config_path = Path("src/event_feed_app/configs/significant_events.yaml")
     with open(config_path) as f:
-        config = yaml.safe_load(f)
+        yaml_config = yaml.safe_load(f)
     
-    # Enable signal writing
-    config['write_signals'] = True
-    config['alert_all_guidance'] = False
+    # Build detector config with proper structure
+    config = {
+        'write_signals': True,
+        'alert_all_guidance': False,
+        'guidance_plugin_config': yaml_config  # Pass YAML root to plugin configure()
+    }
     
     # Initialize detector
     signal_store = SignalStore()

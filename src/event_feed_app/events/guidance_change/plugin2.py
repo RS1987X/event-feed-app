@@ -538,54 +538,50 @@ class GuidanceChangePlugin(EventPlugin):
     taxonomy_class = "earnings_report"
 
     def __init__(self):
-        """Initialize fields and compiled regex holders."""
-        self.event_key = "guidance_change"
-        # YAML / runtime config
-        self.cfg: dict = {}
-        self.thresholds: dict = {}
+        """Initialize safe defaults; configure() fills in real values."""
+        # Basic config and thresholds
+        self.cfg = {}
+        self.thresholds = {}
 
-        # Strong trigger regexes (kept regex-based)
-        # List of (label, compiled_pattern) for provenance + combined union
-        self.trigger_regexes: list[tuple[str, re.Pattern]] = []
-        self.trigger_rx: re.Pattern = _rx_match_nothing()
+        # Exclusions and rule sets
+        self.exclusions = {}
+        self.prox_rules = []
+        self.numeric_rules = []
 
-        # Directional / cue / disclaimers / invites
-        self.rx_fwd_cue: re.Pattern = _rx_match_nothing()   # kept for back-compat
-        self.rx_dir_up:  re.Pattern = _rx_match_nothing()
-        self.rx_dir_dn:  re.Pattern = _rx_match_nothing()
-        self.rx_invite:  re.Pattern = _rx_match_nothing()
-        self.rx_disclaimer_blk: re.Pattern = _rx_match_nothing()
-        self.rx_disclaimer_inl: re.Pattern = _rx_match_nothing()
+        # Trigger regexes and unions
+        self.trigger_regexes = []
+        self.trigger_rx = _rx_match_nothing()
+
+        # Directional / invite / disclaimers
+        self.rx_fwd_cues = _rx_match_nothing()
+        self.rx_fwd_cue = self.rx_fwd_cues  # back-compat alias
+        self.rx_dir_up = _rx_match_nothing()
+        self.rx_dir_dn = _rx_match_nothing()
+        self.rx_invite = _rx_match_nothing()
+        self.rx_disclaimer_blk = _rx_match_nothing()
+        self.rx_disclaimer_inl = _rx_match_nothing()
 
         # Suppressors
-        self.rx_sup_analyst: re.Pattern = _rx_match_nothing()
-        self.rx_sup_macro:   re.Pattern = _rx_match_nothing()
-        self.rx_sup_ma:      re.Pattern = _rx_match_nothing()
-        self.rx_sup_debt:    re.Pattern = _rx_match_nothing()
+        self.rx_sup_analyst = _rx_match_nothing()
+        self.rx_sup_macro = _rx_match_nothing()
+        self.rx_sup_ma = _rx_match_nothing()
+        self.rx_sup_debt = _rx_match_nothing()
 
-        # Proximity engine (defaults; overridden by YAML thresholds.proximity)
-        self.prox_mode: str = "token"      # "token" | "char" | "both" | "either"
-        self.prox_chars: int = 120         # back-compat / char gating
-        self.prox_tokens: int = 25         # token window (will be tightened by YAML)
-        self.allow_cross_sentence: bool = False
-        self.look_left_sentences: int = 0
-        self.look_right_sentences: int = 0
+        # Proximity defaults
+        self.prox_mode = "token"
+        self.prox_chars = 120
+        self.prox_tokens = 25
+        self.allow_cross_sentence = False
+        self.look_left_sentences = 0
+        self.look_right_sentences = 0
 
-        # Unchanged markers from thresholds.proximity
-        self.unchanged_markers: dict[str, list[str]] = {"en": [], "sv": []}
-
-        # Literal term lists (used by token proximity & direction)
-        self.fwd_cue_terms: list[str] = []
-        self.dir_up_terms:  list[str] = []
-        self.dir_dn_terms:  list[str] = []
-        #self.margin_prefixes: list[str] = []
-        self.margin_prefixes = ("operating","gross","ebit","ebitda","net","rörelse","brutto")
-        # Metrics: literal phrases to scan for (built from METRIC_MAP)
-        self.fin_metric_terms: list[str] = []
-
-        # NEW: parsed rule sets from YAML
-        self.prox_rules: list[dict] = []     # patterns.proximity_triggers
-        self.numeric_rules: list[dict] = []  # patterns.metric_numeric_triggers
+        # Term lists / markers
+        self.unchanged_markers = {"en": [], "sv": []}
+        self.fwd_cue_terms = []
+        self.dir_up_terms = []
+        self.dir_dn_terms = []
+        self.margin_prefixes = ["operating","gross","ebit","ebitda","net","rörelse","brutto"]
+        self.fin_metric_terms = []
         # safe defaults until configure() is called
         self.expected_forward_terms = ()
         self.expected_past_terms = ()
@@ -836,13 +832,15 @@ class GuidanceChangePlugin(EventPlugin):
         Returns:
             True if document should be excluded, False otherwise
         """
-        if not self.exclusions:
+        # Guard: exclusions may be unset if configure() wasn't called
+        exclusions = getattr(self, "exclusions", {}) or {}
+        if not exclusions:
             return False
             
         text_lower = text.lower()
         
-        # Check securities lawsuits exclusion
-        lawsuit_cfg = self.exclusions.get("securities_lawsuits", {})
+        # Check securities lawsuits exclusion (OR logic: either indicator OR law firm)
+        lawsuit_cfg = exclusions.get("securities_lawsuits", {})
         if lawsuit_cfg:
             indicators = [ind.lower() for ind in lawsuit_cfg.get("indicators", [])]
             law_firms = [firm.lower() for firm in lawsuit_cfg.get("law_firms", [])]
@@ -850,12 +848,13 @@ class GuidanceChangePlugin(EventPlugin):
             has_indicator = any(ind in text_lower for ind in indicators)
             has_law_firm = any(firm in text_lower for firm in law_firms)
             
-            if has_indicator and has_law_firm:
-                _dprint("[exclude] Securities fraud lawsuit detected")
+            # OR logic: exclude if either condition is met
+            if has_indicator or has_law_firm:
+                _dprint("[exclude] Securities/legal content detected")
                 return True
         
         # Check market research exclusion
-        research_cfg = self.exclusions.get("market_research", {})
+        research_cfg = exclusions.get("market_research", {})
         if research_cfg:
             indicators = [ind.lower() for ind in research_cfg.get("indicators", [])]
             firms = [firm.lower() for firm in research_cfg.get("firms", [])]

@@ -10,6 +10,7 @@ in a queryable, columnar format optimized for analytics and time-series queries.
 import pyarrow as pa
 from typing import Dict, Any, List
 from datetime import datetime
+from datetime import date as _date
 
 
 class GuidanceEventSchema:
@@ -79,6 +80,17 @@ class GuidanceEventSchema:
         """
         comparison = context.get("comparison", {})
         
+        def _to_date32(value: Any) -> Any:
+            """Convert string YYYY-MM-DD to Python date for pa.date32 column."""
+            if isinstance(value, _date):
+                return value
+            if isinstance(value, str) and value:
+                try:
+                    return datetime.strptime(value, "%Y-%m-%d").date()
+                except Exception:
+                    return None
+            return None
+        
         return {
             # Identifiers
             "event_id": context.get("event_id"),
@@ -116,7 +128,7 @@ class GuidanceEventSchema:
             "text_snippet": context.get("text_snippet", "")[:200],  # Limit to 200 chars
             
             # Pointers
-            "press_release_date": context.get("press_release_date"),
+            "press_release_date": _to_date32(context.get("press_release_date")),
             "source_url": context.get("source_url"),
             "source_type": context.get("source_type"),
         }
@@ -168,6 +180,16 @@ class AggregatedAlertSchema:
         """
         import json
         
+        def _to_date32(value: Any) -> Any:
+            if isinstance(value, _date):
+                return value
+            if isinstance(value, str) and value:
+                try:
+                    return datetime.strptime(value, "%Y-%m-%d").date()
+                except Exception:
+                    return None
+            return None
+        
         # Simplify guidance_items for storage (keep only essential fields)
         simplified_items = [
             {
@@ -194,7 +216,7 @@ class AggregatedAlertSchema:
             
             "guidance_items_json": json.dumps(simplified_items),
             
-            "press_release_date": alert.get("metadata", {}).get("release_date"),
+            "press_release_date": _to_date32(alert.get("metadata", {}).get("release_date")),
             "source_url": alert.get("metadata", {}).get("press_release_url"),
         }
 

@@ -133,17 +133,24 @@ events:
             - "investor rights litigation"
             - "shareholder rights litigation"
             - "securities law violations"
+            - "law firm"
+            - "shareholder rights firm"
+            - "investor rights firm"
           law_firms:
             - "rosen law firm"
             - "schall law firm"
             - "kahn swick"
             - "bragar eagel"
+            - "hagens berman"
             - "faruqi"
             - "djs law group"
             - "robbins geller"
             - "pomerantz"
             - "glancy prongay"
-          logic: "indicator AND law_firm"  # Require both
+            - "levi & korsinsky"
+            - "bronstein gewirtz"
+            - "kehoe law firm"
+          logic: "indicator OR law_firm"  # Either one is sufficient
 
         # Market research reports - industry forecasts, not company guidance
         market_research:
