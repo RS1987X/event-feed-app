@@ -1,0 +1,43 @@
+GUIDANCE CHANGE EXCLUSION RULES - VALIDATION SUMMARY
+=====================================================
+
+ISSUE IDENTIFIED:
+- Market research exclusion rule was too broad
+- Included "CAGR" and "compound annual growth rate" as indicators
+- These terms appear in legitimate company guidance (investor day presentations)
+- Result: 1 true positive (Strata Critical Medical investor day) was incorrectly excluded
+
+ROOT CAUSE:
+- Companies use CAGR when providing growth targets/guidance
+- Example: "high-teens target CAGR for adjusted EBITDA"
+- These are valid guidance changes, not market research reports
+
+SOLUTION IMPLEMENTED:
+- Removed "cagr" and "compound annual growth rate" from market_research.indicators
+- Replaced with "market size" and "market value" which are more specific to research reports
+- These new indicators better distinguish market research from company guidance
+
+VALIDATION RESULTS:
+==================
+
+False Positives (should be excluded):
+✅ Securities lawsuit #1 (prnewswire__7d9d4d1a828c8a12): EXCLUDED
+✅ Securities lawsuit #2 (prnewswire__e45d311b92f17f3f): EXCLUDED  
+✅ Market research report (prnewswire__3112a9d70933f504): EXCLUDED
+
+True Positives (should NOT be excluded):
+✅ 20/23 still detect events correctly
+✅ 0/23 incorrectly excluded (previously 1 was excluded)
+⚠️  2/23 don't generate events (unrelated detection issue, not exclusion)
+📭 1/23 press release not found in dataset
+
+CONCLUSION:
+===========
+✅ Exclusion rules now correctly distinguish between:
+   - Market research reports (excluded)
+   - Company guidance with CAGR metrics (NOT excluded)
+   
+✅ No false exclusions of legitimate guidance changes
+✅ All known false positive patterns still excluded
+
+The refined rules are ready for deployment.

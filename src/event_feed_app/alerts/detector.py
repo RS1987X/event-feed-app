@@ -466,67 +466,93 @@ class GuidanceAlertDetector:
         candidate: Dict[str, Any], 
         comparison: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Extract structured metrics from candidate."""
-        metrics = []
+        """Extract structured metrics from candidate (flat event structure)."""
+        # Plugin yields flat dicts with metric, value_low, value_high, unit, etc.
+        # Build a single metric entry from the flat structure
+        metric = candidate.get("metric")
+        if not metric:
+            return []
         
-        for metric_data in candidate.get("metrics") or []:
-            metric_entry = {
-                "metric": metric_data.get("metric", "unknown"),
-                "value": metric_data.get("value"),
-                "range": metric_data.get("range"),
-                "unit": metric_data.get("unit"),
-                "direction": metric_data.get("direction"),
-                "basis": metric_data.get("basis"),  # organic, cc_fx, etc.
-            }
-            
-            # Add comparison data if available
-            if comparison.get("changes"):
-                for change in comparison["changes"]:
-                    if change.get("metric") == metric_entry["metric"]:
-                        metric_entry["prior_value"] = change.get("prior_value")
-                        metric_entry["change_pct"] = change.get("change_pct")
-            
-            metrics.append(metric_entry)
+        value_low = candidate.get("value_low")
+        value_high = candidate.get("value_high")
+        unit = candidate.get("unit")
+        direction_hint = candidate.get("direction_hint")
+        basis = candidate.get("basis")
         
-        return metrics
+        metric_entry = {
+            "metric": metric,
+            "value_low": value_low,
+            "value_high": value_high,
+            "unit": unit,
+            "direction": direction_hint,
+            "basis": basis,
+        }
+        
+        # Add comparison data if available
+        old_mid = comparison.get("old_mid")
+        delta_pp = comparison.get("delta_pp")
+        delta_pct = comparison.get("delta_pct")
+        
+        if old_mid is not None:
+            metric_entry["prior_value"] = old_mid
+        if delta_pp is not None:
+            metric_entry["change_pp"] = delta_pp
+        if delta_pct is not None:
+            metric_entry["change_pct"] = delta_pct
+        
+        return [metric_entry]
     
     def _format_value_change(self, candidate: Dict[str, Any], comparison: Dict[str, Any]) -> str:
         """Format a human-readable value change string from candidate/comparison."""
-        metrics = candidate.get("metrics") or []
-        if not metrics:
+        # Get values from flat event structure (plugin yields flat dicts)
+        value_low = candidate.get("value_low")
+        value_high = candidate.get("value_high")
+        unit = candidate.get("unit", "")
+        
+        # No numeric values available
+        if value_low is None or value_high is None:
             return ""
         
-        # Use first metric for simplicity
-        metric_data = metrics[0]
-        value = metric_data.get("value")
-        value_range = metric_data.get("range")
-        unit = metric_data.get("unit", "")
+        # Format unit suffix
+        unit_suffix = ""
+        if unit == "pct":
+            unit_suffix = "%"
+        elif unit == "ccy":
+            # For currency, we could use candidate.get("currency") but often not available
+            unit_suffix = ""
         
-        # Check for prior value in comparison
-        prior_value = None
-        change_pct = None
-        if comparison.get("changes"):
-            for change in comparison["changes"]:
-                if change.get("metric") == metric_data.get("metric"):
-                    prior_value = change.get("prior_value")
-                    change_pct = change.get("change_pct")
-                    break
+        # Check for prior values in comparison
+        old_low = comparison.get("old_low")
+        old_high = comparison.get("old_high")
+        old_mid = comparison.get("old_mid")
+        delta_pp = comparison.get("delta_pp")
+        delta_pct = comparison.get("delta_pct")
         
-        # Format: "prior → new (change%)" or just "new" or "range"
-        parts = []
-        if prior_value is not None:
-            parts.append(f"{prior_value}{unit}")
-            parts.append("→")
+        # Format current value (point or range)
+        if value_low == value_high:
+            current_str = f"{value_low}{unit_suffix}"
+        else:
+            current_str = f"{value_low}-{value_high}{unit_suffix}"
         
-        if value_range:
-            parts.append(f"{value_range[0]}-{value_range[1]}{unit}")
-        elif value is not None:
-            parts.append(f"{value}{unit}")
+        # If we have prior data, show change
+        if old_mid is not None:
+            if old_low == old_high:
+                prior_str = f"{old_low}{unit_suffix}"
+            else:
+                prior_str = f"{old_low}-{old_high}{unit_suffix}"
+            
+            # Add change indicator
+            if delta_pp is not None and unit == "pct":
+                # For percentages, show pp change
+                return f"{prior_str} → {current_str} ({delta_pp:+.1f}pp)"
+            elif delta_pct is not None:
+                # For currencies/other, show % change
+                return f"{prior_str} → {current_str} ({delta_pct:+.0f}%)"
+            else:
+                return f"{prior_str} → {current_str}"
         
-        if change_pct is not None:
-            parts.append(f"({change_pct:+.0f}%)")
-        
-        return " ".join(parts) if parts else "N/A"
+        # No prior data, just show current value
+        return current_str
     
     def _generate_alert_id(self, doc: Dict[str, Any], candidate: Dict[str, Any]) -> str:
         """Generate unique alert ID."""
