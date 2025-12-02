@@ -102,10 +102,45 @@ st.markdown("---")
 # Display body with proper formatting
 if body:
     st.markdown("### Content")
+    # Gather detected text snippets for highlighting (case-insensitive)
+    detected_snippets = []
+    try:
+        for gi in alert.get("guidance_items", []):
+            ts = gi.get("text_snippet")
+            if ts and isinstance(ts, str):
+                detected_snippets.append(ts.strip())
+    except Exception:
+        pass
+
+    # Deduplicate snippets and sort longest-first to avoid nested replacements
+    detected_snippets = sorted(list({s for s in detected_snippets if s}), key=len, reverse=True)
+
     # Split into paragraphs for better readability
     paragraphs = [p.strip() for p in body.split("\n") if p.strip()]
+
+    def highlight_para(text: str) -> str:
+        # Apply HTML <mark> highlighting for each detected snippet
+        highlighted = text
+        for s in detected_snippets:
+            try:
+                # Escape regex special chars from snippet
+                import re
+                pattern = re.escape(s)
+                # Replace all case-insensitive occurrences with a bold, bright yellow highlight
+                highlighted = re.sub(
+                    pattern,
+                    lambda m: f"<mark style='background-color:#ffeb3b;padding:2px 4px;border-radius:3px;font-weight:600;font-size:1.05em;border:2px solid #fdd835'>{m.group(0)}</mark>",
+                    highlighted,
+                    flags=re.IGNORECASE,
+                )
+            except Exception:
+                # Fallback: leave paragraph unchanged if any error
+                pass
+        return highlighted
+
     for para in paragraphs:
-        st.markdown(para)
+        # Use unsafe_allow_html to render <mark> tags
+        st.markdown(highlight_para(para), unsafe_allow_html=True)
         st.markdown("")  # Add spacing
 else:
     st.warning("No content available for this press release.")

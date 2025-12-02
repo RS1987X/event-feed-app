@@ -1,0 +1,167 @@
+# Guidance language configuration (refactored from significant_events.yaml)
+# Focused, de-duplicated vocabulary and rule scaffolding used by the guidance detection plugin.
+# Safe to load alongside event configs; contains no scoring weights or unrelated events.
+
+version: 1
+
+# Shared vocabularies (canonical lists referenced by rules)
+shared:
+  guidance_markers_en: ["guidance","outlook","forecast","full-year guidance","fy guidance","guidance range"]
+  guidance_markers_sv: ["prognos","utsikter","helårsprognos","fy-prognos","guidning","mål","målsättning"]
+
+  unchanged_markers_en: ["unchang", "in line", "no change", "as previously", "as prior"]
+  unchanged_markers_sv: ["oföränd", "i linje med", "som tidigare", "som tidigare kommunicerats", "ingen förändring"]
+
+  # Forward-looking cues (general)
+  fwd_cue_terms_en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect", guiding]
+  fwd_cue_terms_sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror", förväntas, väntas, bedöms]
+
+  # Cues that must precede metrics (prevent non-guidance matches)
+  directional_cues_en: [target, targets, aim]
+  directional_cues_sv: [siktar, målsätter]
+
+  # Exclude non-guidance uses of forward-cue terms
+  exclusion_phrases_en:
+    - "target market"
+    - "target audience"
+    - "target customer"
+    - "target group"
+    - "key target"
+    - "target application"
+    - "target population"
+
+  # Direction vocab (consolidated)
+  dir_up_any: ['\b(improv\w+|increase\w*|expand\w*|grow\w*|strengthen\w*|better|öka\w*|väx\w*|stig\w*|förbättr\w*|tillta\w*)\b']
+  dir_dn_any: ['\b(declin\w+|decreas\w+|contract\w*|pressure|pressures|headwind\w*|worse|minsk\w*|sjunk\w*|försämr\w*|avta\w*)\b']
+
+# Rule scaffolding (language-specific)
+rules:
+  en:
+    guidance_change:
+      verbs: [raise, raises, raised, raising, lower, lowers, lowered, lowering, revise, revises, revised, revising, update, updates, updated, updating, withdraw, withdraws, withdrew, withdrawn, suspend, suspends, suspended, suspending, narrow, narrows, narrowed, narrowing, widen, widens, widened, widening]
+      markers: "@shared.guidance_markers_en"
+      window_tokens: 10
+      same_sentence: true
+
+    guidance_unchanged_verbal:
+      verbs: [reaffirm, reaffirms, reaffirmed, reaffirming, maintain, maintains, maintained, maintaining, keep, keeps, kept, keeping, leave, leaves, left, leaving]
+      markers: "@shared.guidance_markers_en"
+      window_tokens: 10
+      same_sentence: true
+
+    guidance_unchanged_token:
+      unchanged_tokens: "@shared.unchanged_markers_en"
+      markers: "@shared.guidance_markers_en"
+      window_tokens: 6
+      same_sentence: true
+
+    guidance_initiate:
+      verbs: [initiate, initiates, initiated, initiating, provide, provides, provided, providing, issue, issues, issued, issuing, set, sets, setting, introduce, introduces, introduced, introducing, publish, publishes, published, publishing, present, presents, presented, presenting]
+      markers: "@shared.guidance_markers_en"
+      window_tokens: 10
+      same_sentence: true
+      require_period_token: true
+
+    guidance_numeric:
+      markers: "@shared.guidance_markers_en"
+      window_tokens: 8
+      same_sentence: true
+      require_number: true
+
+  sv:
+    guidance_change:
+      verbs: [höja, höjer, höjde, höjs, sänka, sänker, sänkte, sänks, uppdatera, uppdaterar, uppdaterade, uppdateras,
+              precisera, preciserar, preciserade, preciseras, snäva in, snävar in, snävade in, snävas in,
+              bredda, breddar, breddade, breddas]
+      markers: "@shared.guidance_markers_sv"
+      window_tokens: 10
+      same_sentence: true
+
+    guidance_unchanged_verbal:
+      verbs: [upprepa, upprepar, upprepade, upprepas, bekräfta, bekräftar, bekräftade, bekräftas,
+              lämna, lämnar, lämnade, lämnas]
+      markers: "@shared.guidance_markers_sv"
+      window_tokens: 10
+      same_sentence: true
+
+    guidance_unchanged_token:
+      unchanged_tokens: "@shared.unchanged_markers_sv"
+      markers: "@shared.guidance_markers_sv"
+      window_tokens: 6
+      same_sentence: true
+
+    guidance_initiate:
+      verbs: [initiera, initierar, initierade, initieras, introducera, introducerar, introducerade, introduceras,
+              lansera, lanserar, lanserade, lanseras, presentera, presenterar, presenterade, presenteras,
+              publicera, publicerar, publicerade, publiceras, kommunicera, kommunicerar, kommunicerade, kommuniceras,
+              fastställa, fastställer, fastställde, fastställs]
+      markers: "@shared.guidance_markers_sv"
+      window_tokens: 10
+      same_sentence: true
+      require_period_token: true
+
+    guidance_numeric:
+      markers: "@shared.guidance_markers_sv"
+      window_tokens: 8
+      same_sentence: true
+      require_number: true
+
+# Filters (negative/context vetoes)
+filters:
+  invite_any: ['\b(invite|invitation|webcast|earnings\s+call|fireside\s+chat|reminder|capital\s+markets\s+day|cmd)\b']
+  disclaimer_block_any: ['(forward[-\s]looking\s+statements|safe\s+harbor|cautionary\s+statement)']
+  disclaimer_inline_any: ['(statements?\s+that\s+are\s+not\s+historical|subject\s+to\s+risks\s+and\s+uncertainties)']
+
+  exclusions:
+    securities_lawsuits_indicators:
+      - "class action"
+      - "securities fraud"
+      - "securities litigation"
+      - "investor rights litigation"
+      - "shareholder rights litigation"
+      - "securities law violations"
+      - "law firm"
+      - "shareholder rights firm"
+      - "investor rights firm"
+    securities_lawsuits_firms:
+      - "rosen law firm"
+      - "schall law firm"
+      - "kahn swick"
+      - "bragar eagel"
+      - "hagens berman"
+      - "faruqi"
+      - "djs law group"
+      - "robbins geller"
+      - "pomerantz"
+      - "glancy prongay"
+      - "levi & korsinsky"
+      - "bronstein gewirtz"
+      - "kehoe law firm"
+
+    market_research_indicators:
+      - "market research"
+      - "market report"
+      - "market forecast"
+      - "market analysis"
+      - "market intelligence"
+      - "market study"
+      - "research report"
+      - "industry report"
+      - "market size"
+      - "market value"
+    market_research_firms:
+      - "verified market research"
+      - "research and markets"
+      - "technavio"
+      - "mordor intelligence"
+      - "grand view research"
+      - "fortune business insights"
+      - "marketsandmarkets"
+      - "frost & sullivan"
+      - "idc"
+      - "gartner"
+
+# Notes:
+# - This file removes unrelated events, weights, and scoring.
+# - The plugin can load shared lists via the @shared.<key> indirection.
+# - Text stub rules are intentionally omitted here; honor enable_text_stubs in event configs.

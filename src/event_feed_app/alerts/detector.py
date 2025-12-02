@@ -6,7 +6,7 @@ Alert detection logic for identifying significant guidance changes and other eve
 from __future__ import annotations
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Dict, Any, List, Optional, Sequence
 import os
 from urllib.parse import quote_plus
@@ -368,13 +368,34 @@ class GuidanceAlertDetector:
             all_metrics.extend(metrics)
             
             # Build detailed item for viewer display
+            # Expand snippet to include context for better highlighting
+            trigger_match = candidate.get("_trigger_match", "")
+            snippet = candidate.get("snippet") or candidate.get("text") or ""
+            
+            # If we only have a short trigger word, try to expand it with sentence context
+            text_snippet = trigger_match or snippet
+            if trigger_match and len(trigger_match) < 30 and snippet:
+                # Use the fuller snippet which has sentence context
+                text_snippet = snippet
+            elif trigger_match and len(trigger_match) < 30:
+                # Try to extract sentence from body
+                body_text = normalized_doc.get("body") or normalized_doc.get("body_clean") or ""
+                if trigger_match in body_text:
+                    import re
+                    # Find sentence containing trigger
+                    sentences = re.split(r'[.!?]\s+', body_text)
+                    for sent in sentences:
+                        if trigger_match.lower() in sent.lower():
+                            text_snippet = sent.strip()[:200]  # Cap at 200 chars
+                            break
+            
             detailed_item = {
                 "metric": candidate.get("metric") or "unknown",
                 "direction": comparison.get("direction") or "unknown",
                 "period": candidate.get("period") or "UNKNOWN",
                 "value_str": self._format_value_change(candidate, comparison),
                 "confidence": item.get("score", 0.0),
-                "text_snippet": candidate.get("snippet") or candidate.get("text") or ""
+                "text_snippet": text_snippet,
             }
             detailed_guidance_items.append(detailed_item)
         
@@ -671,7 +692,22 @@ class GuidanceAlertDetector:
             alert_with_company = dict(alert)
             alert_with_company["company_id"] = company_id
             
-            self.signal_store.write_aggregated_alert(alert_with_company)
+            # Ensure aggregated alert partitions by the actual PR date
+            pr_partition_date = None
+            if isinstance(press_release_date, str):
+                try:
+                    pr_partition_date = datetime.fromisoformat(press_release_date).date()
+                except Exception:
+                    pr_partition_date = None
+            elif isinstance(press_release_date, datetime):
+                pr_partition_date = press_release_date.date()
+            elif isinstance(press_release_date, date):
+                pr_partition_date = press_release_date
+
+            self.signal_store.write_aggregated_alert(
+                alert_with_company,
+                partition_date=pr_partition_date
+            )
             logger.info(f"Wrote aggregated alert {alert_id} to signals storage")
             
         except Exception as e:
