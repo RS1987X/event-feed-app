@@ -10,26 +10,37 @@ Current ingestion writes one Parquet file per press release (200-300 files/day):
 
 ## Solution Architecture
 
-Three-stage approach without requiring GCS append operations:
+Two-layer approach: raw audit trail + consolidated analytics layer.
 
 ### 1. Bronze Layer: Hourly Batching
-- **Purpose**: Fast, efficient ingestion with minimal overhead
-- **Path**: `bronze/table=press_releases/source={source}/release_date={date}/batch_*.parquet`
-- **Compression**: Snappy (fast write, decent compression)
-- **Batch Size**: 100 records (configurable)
-- **File Pattern**: `batch_{count:04d}_{timestamp}.parquet`
-- **Expected Volume**: 10-15 batch files per day (down from 200-300)
+### 1. Bronze Raw: Immutable Audit Trail
+- **Purpose**: Preserve original source material for reprocessing
+- **Path**: `bronze_raw/source={source}/dt={date}/msgId={id}/`
+- **Content**: 
+  - Gmail: `.eml` files + `meta.json`
+  - RSS: `.html.gz` + `entry.json.gz`
+- **Lifecycle**: Never deleted, permanent audit trail
 
-### 2. Silver Layer: Daily Consolidation
-- **Purpose**: Maximum compression, optimized for analytics
-- **Path**: `silver_normalized/table=press_releases/source={source}/release_date={date}/consolidated.parquet`
-- **Compression**: ZSTD level 9 (maximum compression)
-- **Schedule**: Daily at 00:05 CET (Stockholm timezone)
-- **Process**: Read all bronze batches → Deduplicate → Write consolidated → Verify → Delete batches
+
+### 2. Silver Layer: Batched Ingestion + Daily Consolidation
+- **Purpose**: Efficient analytics-ready data with deduplication
+- **Ingestion**: Write batches (snappy compression, fast)
+  - Path: `silver_normalized/table=press_releases/source={source}/release_date={date}/batch_*.parquet`
+  - Batch Size: 100 records (configurable)
+  - File Pattern: `batch_{count:04d}_{timestamp}.parquet`
+  - Expected: 10-15 batch files per day (down from 200-300)
+- **Consolidation**: Daily merge (ZSTD level 9, maximum compression)
+  - Path: `silver_normalized/table=press_releases/source={source}/release_date={date}/consolidated.parquet`
+  - Schedule: 00:05 CET daily
+  - Process: Read batches → Deduplicate → Write consolidated → Verify → Delete batches
+  - Expected: 1 consolidated file per source/date
+
 - **Expected Volume**: 1 consolidated file per source/date
+### 3. Smart Loading: Automatic Deduplication
+- **Alert Runner**: Reads all Parquet files from silver (batches + consolidated)
+- **Deduplication**: By press_release_id, keep last by ingested_at
+- **Backward Compatible**: Works seamlessly with existing data
 
-### 3. Smart Loading: Bronze + Silver
-- **Alert Runner**: Reads today's bronze batches + historical silver files
 - **Deduplication**: By press_release_id, keep last by ingested_at
 - **Backward Compatible**: Works with existing silver-only data
 
@@ -48,11 +59,7 @@ Three-stage approach without requiring GCS append operations:
 
 **Usage**:
 ```python
-from event_feed_app.utils.batch_writer import ParquetBatchWriter
-
-writer = ParquetBatchWriter(
-    bucket_name="your-bucket",
-    base_path="bronze/table=press_releases",
+  base_path="silver_normalized/table=press_releases",
     batch_size=100,
     compression="snappy"
 )
