@@ -16,6 +16,9 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.cloud import secretmanager, firestore, storage
 
+# Import batch writer for efficient GCS writes
+from event_feed_app.utils.batch_writer import ParquetBatchWriter
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Config (from env)
@@ -549,73 +552,23 @@ def silver_exists(msg_id: str, release_date: str, source: str = "gmail") -> bool
     b = _gcs.bucket(BUCKET)
     path = f"silver_normalized/table=press_releases/source={source}/release_date={release_date}/msgId={msg_id}.parquet"
     return b.blob(path).exists(_gcs)
-
-# def write_silver_unique(row: Dict) -> None:
-#     # Path includes msgId -> idempotent
-#     msg_id = row["press_release_id"]
-#     release_date = row["release_date"]
-#     b = _gcs.bucket(BUCKET)
-#     path = f"silver_normalized/table=press_releases/release_date={release_date}/msgId={msg_id}.parquet"
-#     blob = b.blob(path)
-#     if blob.exists(_gcs):
-#         return  # already written
-    
-#     # write a single-row parquet
-#     df = pl.DataFrame([row])
-#     buf = io.BytesIO()
-#     df.write_parquet(buf)
-#     blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
-#     logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
-
-
-# add imports at top
-import pyarrow as pa
-import pyarrow.parquet as pq
-
-def write_silver_unique(row: Dict) -> None:
-    # Path includes msgId -> idempotent
+def write_silver_batch(batch_writer: ParquetBatchWriter, row: Dict) -> None:
+    """Add record to batch writer (will auto-flush at batch_size threshold)."""
+    # Check if already exists in silver (consolidated from previous day)
     msg_id = row["press_release_id"]
     release_date = row["release_date"]
+    source = row["source"]
+    
+    # Quick check if consolidated file exists (yesterday or earlier)
     b = _gcs.bucket(BUCKET)
-    #path = f"silver_normalized/table=press_releases/release_date={release_date}/msgId={msg_id}.parquet"
-    path = f"silver_normalized/table=press_releases/source=gmail/release_date={release_date}/msgId={msg_id}.parquet"
-    blob = b.blob(path)
-    if blob.exists(_gcs):
-        return  # already written
-
-    # 1) Explicit Arrow schema (lock types; keep strings as pa.string())
-    schema = pa.schema([
-        ("press_release_id", pa.string()),
-        ("company_name",     pa.string()),
-        ("category",         pa.string()),
-        ("release_date",     pa.string()),
-        ("release_ts_utc",   pa.string()),   # NEW (ISO-8601 UTC)
-        ("ingested_at",      pa.string()),
-        ("title",            pa.string()),
-        ("full_text",        pa.string()),
-        ("source",           pa.string()),
-        ("source_url",       pa.string()),
-        ("parser_version",   pa.int32()),
-        ("schema_version",   pa.int32()),
-    ])
-
-    # 2) Build a single-row table under that schema
-    #    (ensure missing keys become None so types still align)
-    data = {name: [row.get(name)] for name in schema.names}
-    table = pa.Table.from_pydict(data, schema=schema)
-
-    # 3) Write parquet with pyarrow (consistent across runs)
-    buf = io.BytesIO()
-    pq.write_table(
-        table,
-        buf,
-        # optional tuning:
-        compression="zstd",
-        version="2.6",          # keep modern metadata; OK to omit if unsure
-        use_dictionary=False,   # text often better without dicts for single-row files
-    )
-    blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
-    logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
+    consolidated_path = f"silver_normalized/table=press_releases/source={source}/release_date={release_date}/consolidated.parquet"
+    if b.blob(consolidated_path).exists(_gcs):
+        # Could be in consolidated file, but batch writer will dedupe anyway
+        pass
+    
+    # Add to batch (batch writer handles partitioning and flushing)
+    batch_writer.add(row)
+    logging.debug(f"[silver] added to batch: {msg_id}")
 
 
 from email.utils import parseaddr
@@ -631,6 +584,14 @@ def extract_company_name(headers: dict) -> str:
 # Orchestration
 
 def run_once():
+    # Initialize batch writer for this run
+    batch_writer = ParquetBatchWriter(
+        bucket_name=BUCKET,
+        base_path="silver_normalized/table=press_releases",
+        batch_size=100,
+        compression="snappy"
+    )
+    
     try:
         # ── Global cooldown gate ──────────────────────────────────────────
         now_utc = datetime.now(timezone.utc)
@@ -655,7 +616,7 @@ def run_once():
         # ── A) Backfill one window if there is outstanding work ──────────
         #if backfill_cursor is not None:
         try:
-            seen, ingested, next_before = run_backfill_once(svc, backfill_cursor)
+            seen, ingested, next_before = run_backfill_once(svc, backfill_cursor, batch_writer)
             logging.info("[backfill] seen=%d ingested=%d next_before_ms=%s",
                             seen, ingested, next_before)
         except CooldownActive:
@@ -738,7 +699,7 @@ def run_once():
                                 "schema_version": SCHEMA_VER,  # bump if you changed schema
                             }
 
-                            write_silver_unique(row)
+                            write_silver_batch(batch_writer, row)
                             if epoch_ms2 > last_epoch_ms or (epoch_ms2 == last_epoch_ms and mid > (last_id or "")):
                                 last_epoch_ms, last_id = epoch_ms2, mid
                                 save_watermark(last_epoch_ms, last_id)
@@ -823,7 +784,7 @@ def run_once():
                     "parser_version": PARSER_VER,
                     "schema_version": SCHEMA_VER,
                 }
-                write_silver_unique(row)
+                write_silver_batch(batch_writer, row)
                 if epoch_ms2 > last_epoch_ms or (epoch_ms2 == last_epoch_ms and mid > (last_id or "")):
                     last_epoch_ms, last_id = epoch_ms2, mid
                     save_watermark(last_epoch_ms, last_id)
@@ -856,9 +817,13 @@ def run_once():
     except CooldownActive as ce:
         logging.warning("[gate] Aborting run due to cooldown: %s", ce)
         return
+    finally:
+        # Ensure all remaining batches are flushed
+        batch_writer.close()
+        logging.info("[cleanup] batch writer closed")
 
 
-def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional[int]]:
+def run_backfill_once(svc, before_ms: Optional[int], batch_writer: ParquetBatchWriter) -> Tuple[int, int, Optional[int]]:
     """
     Process at most one date window, returning:
     (messages_seen, messages_ingested, next_before_epoch_ms_or_None)
@@ -947,7 +912,7 @@ def run_backfill_once(svc, before_ms: Optional[int]) -> Tuple[int, int, Optional
                 "parser_version": PARSER_VER,
                 "schema_version": SCHEMA_VER,
             }
-            write_silver_unique(row)
+            write_silver_batch(batch_writer, row)
 
             # # advance your epoch watermark
             # cur_max_ms, ids_at_max = load_watermark()  # reload if other workers exist; else track locally

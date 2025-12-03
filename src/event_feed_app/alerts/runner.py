@@ -76,24 +76,21 @@ def _ensure_text_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def fetch_data(start_date: str, end_date: str, max_rows: int, source: Optional[str]) -> pd.DataFrame:
-    """Fetch press releases from GCS Silver (consolidated) and Bronze (today's batches).
+    """Fetch press releases from GCS Silver layer.
+    
+    Silver layer contains both:
+    - Batch files (batch_*.parquet) - Today's unconsolidated data
+    - Consolidated files (consolidated.parquet) - Historical consolidated data
     
     Strategy:
-    - For today's date: Read from bronze batches (not yet consolidated)
-    - For historical dates: Read from silver consolidated files
-    - Deduplicate across both sources by press_release_id (keep last by ingested_at)
+    - Read all Parquet files from silver for date range
+    - Deduplicate by press_release_id (keep last by ingested_at)
+    - Consolidation job runs daily to merge batches into consolidated files
     """
-    from datetime import date as dt_date
-    from google.cloud import storage
-    
     cfg = Settings()
-    today = dt_date.today().strftime("%Y-%m-%d")
-    
-    # Parse date range
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-    today_dt = dt_date.today()
-    
+    uri = _build_dataset_uri(cfg, source)
+
+    logger.info(f"Loading dataset: {uri}")
     columns: List[str] = [
         "press_release_id",
         "company_name",
@@ -105,76 +102,34 @@ def fetch_data(start_date: str, end_date: str, max_rows: int, source: Optional[s
         "ingested_at",  # Need for deduplication
     ]
     
-    dfs = []
-    
-    # Load historical data from silver (consolidated)
-    if start_dt < today_dt:
-        historical_end = min(end_dt, today_dt - timedelta(days=1))
-        silver_uri = _build_dataset_uri(cfg, source)
-        logger.info(f"Loading silver (historical): {silver_uri} [{start_date} to {historical_end}]")
-        
-        df_silver = load_parquet_df_date_range(
-            uri=silver_uri,
-            start_date=start_date,
-            end_date=historical_end.strftime("%Y-%m-%d"),
-            date_column="release_date",
-            columns=columns,
-            max_rows=None,  # Don't limit per layer
-            sort_descending=True,
-        )
-        if len(df_silver) > 0:
-            logger.info(f"Loaded {len(df_silver)} rows from silver")
-            dfs.append(df_silver)
-    
-    # Load today's data from bronze (batches not yet consolidated)
-    if end_dt >= today_dt:
-        # Build bronze URI (replace silver_normalized with bronze)
-        bronze_base = cfg.gcs_silver_root.replace("silver_normalized", "bronze")
-        bronze_uri = bronze_base.rstrip("/")
-        if source:
-            bronze_uri = f"{bronze_uri}/source={source}"
-        
-        # Add today's partition
-        bronze_uri_today = f"{bronze_uri}/release_date={today}"
-        
-        logger.info(f"Loading bronze (today's batches): {bronze_uri_today}")
-        try:
-            df_bronze = load_parquet_df_date_range(
-                uri=bronze_uri_today,
-                start_date=today,
-                end_date=today,
-                date_column="release_date",
-                columns=columns,
-                max_rows=None,
-                sort_descending=True,
-            )
-            if len(df_bronze) > 0:
-                logger.info(f"Loaded {len(df_bronze)} rows from bronze (today)")
-                dfs.append(df_bronze)
-        except Exception as e:
-            logger.warning(f"No bronze data for today (may not exist yet): {e}")
-    
-    # Combine and deduplicate
-    if not dfs:
+    df = load_parquet_df_date_range(
+        uri=uri,
+        start_date=start_date,
+        end_date=end_date,
+        date_column="release_date",
+        columns=columns,
+        max_rows=None,  # Don't limit before deduplication
+        sort_descending=True,
+    )
+
+    if len(df) == 0:
         logger.warning("No data found in requested date range")
-        return pd.DataFrame()
-    
-    df = pd.concat(dfs, ignore_index=True)
-    logger.info(f"Combined total: {len(df)} rows")
-    
+        return df
+
     # Deduplicate: sort by ingested_at, keep last (most recent ingestion)
     if "ingested_at" in df.columns:
         before_dedup = len(df)
         df = df.sort_values("ingested_at").drop_duplicates(
             subset=["press_release_id"], keep="last"
         )
-        logger.info(f"Deduplicated: {before_dedup} → {len(df)} rows")
+        if before_dedup != len(df):
+            logger.info(f"Deduplicated: {before_dedup} → {len(df)} rows")
     
     # Apply max_rows limit after deduplication
     if max_rows and len(df) > max_rows:
         logger.info(f"Limiting to {max_rows} rows (from {len(df)})")
         df = df.head(max_rows)
-    
+
     # Normalize date string and basic fields
     if "release_date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["release_date"]):
         df["release_date"] = pd.to_datetime(df["release_date"]).dt.strftime("%Y-%m-%d")

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Daily consolidation job for GCS bronze → silver.
+Daily consolidation job for GCS silver layer.
 
-Runs at 00:05 CET to consolidate yesterday's hourly batches into
+Runs at 00:05 CET to consolidate yesterday's hourly batch files into
 a single optimized file per partition.
 
 Features:
-- Reads all bronze batches from yesterday (D-1)
+- Reads all silver batch files from yesterday (D-1)
 - Deduplicates by press_release_id (keeps last)
 - Writes consolidated file with optimal compression
-- Verifies integrity before deleting source batches
+- Verifies integrity before deleting batch files
 - Monitors and alerts on anomalies
 
 Safety features:
@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 # Config
 PROJECT_ID = os.getenv("PROJECT_ID", "")
 GCS_BUCKET = os.getenv("GCS_BUCKET", "event-feed-app-data")
-BRONZE_BASE = "bronze/table=press_releases"
 SILVER_BASE = "silver_normalized/table=press_releases"
 CONSOLIDATION_MIN_ROWS = int(os.getenv("CONSOLIDATION_MIN_ROWS", "50"))
 
@@ -67,23 +66,23 @@ def get_yesterday_date(ref_date: datetime = None) -> str:
     return yesterday.isoformat()
 
 
-def list_bronze_batches(
+def list_silver_batches(
     client: storage.Client,
     bucket_name: str,
     date: str,
     source: str = None
 ) -> List[str]:
-    """List all bronze batch files for a given date (and optional source)."""
+    """List all silver batch files for a given date (and optional source)."""
     bucket = client.bucket(bucket_name)
     
     if source:
-        prefix = f"{BRONZE_BASE}/source={source}/release_date={date}/"
+        prefix = f"{SILVER_BASE}/source={source}/release_date={date}/"
     else:
-        prefix = f"{BRONZE_BASE}/"
+        prefix = f"{SILVER_BASE}/"
     
     blobs = bucket.list_blobs(prefix=prefix)
     
-    # Filter to actual batch files (not directories)
+    # Filter to actual batch files (not directories, not consolidated)
     batch_files = []
     for blob in blobs:
         if blob.name.endswith(".parquet") and "batch_" in blob.name:
@@ -94,7 +93,7 @@ def list_bronze_batches(
     return sorted(batch_files)
 
 
-def read_bronze_batches(
+def read_silver_batches(
     client: storage.Client,
     bucket_name: str,
     batch_files: List[str]
@@ -235,13 +234,13 @@ def verify_consolidated(
         return False
 
 
-def delete_bronze_batches(
+def delete_silver_batches(
     client: storage.Client,
     bucket_name: str,
     batch_files: List[str],
     dry_run: bool = False
 ) -> None:
-    """Delete bronze batch files after successful consolidation."""
+    """Delete silver batch files after successful consolidation."""
     if dry_run:
         logger.info(f"[DRY RUN] Would delete {len(batch_files)} batch files")
         return
@@ -288,7 +287,7 @@ def consolidate_source_date(
     
     try:
         # 1. List bronze batches
-        batch_files = list_bronze_batches(client, bucket_name, date, source)
+        batch_files = list_silver_batches(client, bucket_name, date, source)
         stats["batch_count"] = len(batch_files)
         
         if not batch_files:
@@ -297,7 +296,7 @@ def consolidate_source_date(
             return stats
         
         # 2. Read all batches
-        df = read_bronze_batches(client, bucket_name, batch_files)
+        df = read_silver_batches(client, bucket_name, batch_files)
         stats["total_rows"] = len(df)
         
         if df.empty:
@@ -328,7 +327,7 @@ def consolidate_source_date(
                 raise RuntimeError("Verification failed")
             
             # 7. Delete bronze batches only after verification passes
-            delete_bronze_batches(client, bucket_name, batch_files, dry_run=False)
+            delete_silver_batches(client, bucket_name, batch_files, dry_run=False)
         else:
             logger.info(f"[DRY RUN] Would consolidate {stats['final_rows']} rows")
         

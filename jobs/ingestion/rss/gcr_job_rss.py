@@ -42,6 +42,9 @@ import pyarrow.parquet as pq
 from dateutil import parser as dtparser
 from dateutil.tz import gettz
 
+# Import batch writer for efficient GCS writes
+from event_feed_app.utils.batch_writer import ParquetBatchWriter
+
 
 
 # ── Hardcoded feed & source (make env-overridable) ───────────
@@ -339,39 +342,23 @@ def write_bronze(*, msg_id: str, day_iso: str, html: str, entry_json: Dict, page
                                  content_type="application/json",
                                  if_generation_match=0)
 
-def write_silver_parquet(row: Dict):
-    schema = pa.schema([
-    ("press_release_id", pa.string()),
-    ("company_name",     pa.string()),
-    ("category",         pa.string()),
-    ("release_date",     pa.string()),
-    ("release_ts_utc",   pa.string()),   # ← NEW: ISO-8601 UTC
-    ("ingested_at",      pa.string()),
-    ("title",            pa.string()),
-    ("full_text",        pa.string()),
-    ("source",           pa.string()),
-    ("source_url",       pa.string()),
-    ("parser_version",   pa.int32()),
-    ("schema_version",   pa.int32()),
-])
-    data = {name: [row.get(name)] for name in schema.names}
-    table = pa.Table.from_pydict(data, schema=schema)
-
-    msg_id_full = row["press_release_id"]          # e.g. "globenewswire__0d4cc4a6201f3cc3"
-    short_id = msg_id_full.split("__", 1)[-1]      # "0d4cc4a6201f3cc3" (no-op if no prefix)
+def write_silver_batch(batch_writer: ParquetBatchWriter, row: Dict):
+    """Add record to batch writer (will auto-flush at batch_size threshold)."""
+    # Check if already exists in silver (consolidated from previous day)
+    msg_id_full = row["press_release_id"]
     day = row["release_date"]
     source = row["source"]
-
-    path = f"silver_normalized/table=press_releases/source={source}/release_date={day}/msgId={short_id}.parquet"
-
+    
+    # Quick check if consolidated file exists (yesterday or earlier)
     b = _gcs.bucket(BUCKET)
-    blob = b.blob(path)
-    if blob.exists(_gcs):
-        return
-    buf = io.BytesIO()
-    pq.write_table(table, buf, compression="zstd", version="2.6", use_dictionary=False)
-    blob.upload_from_string(buf.getvalue(), content_type="application/octet-stream")
-    logging.info(f"[silver] wrote 1 row → gs://{BUCKET}/{path}")
+    consolidated_path = f"silver_normalized/table=press_releases/source={source}/release_date={day}/consolidated.parquet"
+    if b.blob(consolidated_path).exists(_gcs):
+        # Could be in consolidated file, but batch writer will dedupe anyway
+        pass
+    
+    # Add to batch (batch writer handles partitioning and flushing)
+    batch_writer.add(row)
+    logging.debug(f"[silver] added to batch: {msg_id_full}")
 
 
 # ── Core ───────────────────────────────────────────────────────────────────────
@@ -392,14 +379,23 @@ def process_once() -> int:
     if not PROJECT_ID or not BUCKET:
         raise RuntimeError("Set PROJECT_ID and GCS_BUCKET env vars.")
 
-    # cooldown gate
-    now_utc = datetime.now(timezone.utc)
-    cd = load_cooldown_utc()
-    if cd and now_utc < cd:
-        logging.warning("[gate] cooldown until %s; skipping run", cd.isoformat(timespec="seconds"))
-        return 0
-    if cd and now_utc >= cd:
-        clear_cooldown_utc()
+    # Initialize batch writer for this run
+    batch_writer = ParquetBatchWriter(
+        bucket_name=BUCKET,
+        base_path="silver_normalized/table=press_releases",
+        batch_size=100,
+        compression="snappy"
+    )
+
+    try:
+        # cooldown gate
+        now_utc = datetime.now(timezone.utc)
+        cd = load_cooldown_utc()
+        if cd and now_utc < cd:
+            logging.warning("[gate] cooldown until %s; skipping run", cd.isoformat(timespec="seconds"))
+            return 0
+        if cd and now_utc >= cd:
+            clear_cooldown_utc()
 
     # conditional GET for the feed
     state = load_feed_state()
@@ -499,13 +495,17 @@ def process_once() -> int:
             "parser_version": PARSER_VER,
             "schema_version": SCHEMA_VER,  # optionally bump to 2
         }
-        write_silver_parquet(row)
+        write_silver_batch(batch_writer, row)
 
         written += 1
         time.sleep(SLEEP_BETWEEN)
 
-    logging.info("[done] source=%s items_written=%d", SOURCE, written)
-    return written
+        logging.info("[done] source=%s items_written=%d", SOURCE, written)
+        return written
+    finally:
+        # Ensure all remaining batches are flushed
+        batch_writer.close()
+        logging.info("[cleanup] batch writer closed")
 
 if __name__ == "__main__":
     try:
