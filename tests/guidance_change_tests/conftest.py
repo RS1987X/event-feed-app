@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import pathlib, yaml
 import pytest
-from event_feed_app.events.guidance_change.plugin2 import GuidanceChangePlugin
+from event_feed_app.events.guidance_change.plugin import GuidanceChangePlugin
 
 YAML_PATH = pathlib.Path("tests/guidance_change_tests/data/guidance_change_test.yml")
 

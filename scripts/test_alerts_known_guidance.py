@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test alert system with known guidance events from cache.
-Fetches specific docs that plugin2 has previously identified as guidance-related.
+Fetches specific docs that the guidance plugin has previously identified as guidance-related.
 """
 import sys
 import os

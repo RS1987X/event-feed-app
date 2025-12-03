@@ -28,7 +28,7 @@ def analyze_periods():
     lines = [line for line in result.stdout.strip().split('\n') if line.strip()]
     print(f"Found {len(lines)} alerts\n")
     
-    # Period extraction patterns (from plugin2.py)
+    # Period extraction patterns (from plugin.py)
     PERIOD_REGEX = re.compile(
         r"\b((FY|FY-)?(?P<y>20\d{2})|(Q(?P<q>[1-4])[-\s]?(?P<y2>20\d{2}))|(H(?P<h>[12])[-\s]?(?P<y3>20\d{2}))|full[-\s]?year|helår|kvartal\s?Q?[1-4])\b",
         re.I

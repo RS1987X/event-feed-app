@@ -33,6 +33,73 @@ from event_feed_app.alerts.alert_payload_store import AlertPayloadStore  # type:
 
 st.set_page_config(page_title="Press Release Viewer", layout="wide")
 
+# Build stamp helps verify deployed version
+from datetime import datetime, timezone
+BUILD_STAMP = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+# Lightweight CSS for cleaner detection formatting
+st.markdown(
+    """
+    <style>
+    .det-card {border:1px solid #2a2a2a;background:#111;border-radius:12px;padding:14px;margin:8px 0;}
+    .det-title {font-weight:600;color:#c9c9c9;margin-bottom:8px;}
+    .badges {display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;}
+    .badge {background:#1a1a1a;border:1px solid #333;border-radius:999px;padding:4px 10px;font-size:0.95rem;color:#ddd;}
+    .badge .label {color:#9a9a9a;margin-right:6px;}
+    .badge.up {border-color:#2e7d32;color:#9be07e;}
+    .badge.down {border-color:#c62828;color:#ff9e9e;}
+    .badge.unchanged {border-color:#607d8b;color:#cfd8dc;}
+    .badge.unknown {border-color:#8e8e8e;color:#e0e0e0;}
+    .value-box {background:#0f1b2d;border:1px solid #1e3a5f;color:#cfe7ff;border-radius:8px;padding:10px 12px;margin:6px 0 10px;}
+    .value-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:6px 0 10px;}
+    .vbox {background:#0f1b2d;border:1px solid #1e3a5f;color:#cfe7ff;border-radius:8px;padding:10px 12px;}
+    .vbox .label {color:#97b7d7;font-size:0.85rem;display:block;margin-bottom:4px;}
+    .vbox .val {font-size:1.1rem;font-weight:600;}
+    .excerpt {background:#0f0f0f;border-radius:8px;padding:12px;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;color:#d7d7d7;border:1px solid #222;}
+    .unknown-icon {color:#ff5252;font-weight:700;margin-right:6px;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Helper: parse structured value from value_str (supports ranges and prior→current)
+def _parse_value_str(value_str: str):
+    import re
+    if not value_str:
+        return {"present": False}
+    s = value_str.strip()
+    # Extract optional trailing change like "(+10%)" or "(+1.5pp)"
+    change_text = None
+    m_change = re.search(r"\(([^)]+)\)\s*$", s)
+    if m_change:
+        change_text = m_change.group(1).strip()
+        s = s[: m_change.start()].strip()
+
+    def parse_part(part: str):
+        part = part.strip()
+        # Range "a-b" or "a – b" or "a to b"
+        m_range = re.match(r"^\s*(-?\d+(?:\.\d+)?)\s*(%?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)\s*(%?)\s*$", part)
+        if m_range:
+            low, suf1, high, suf2 = m_range.groups()
+            unit = suf1 or suf2
+            return {"is_range": True, "low": low, "high": high, "unit": unit}
+        # Single value
+        m_single = re.match(r"^\s*(-?\d+(?:\.\d+)?)\s*(%?)\s*$", part)
+        if m_single:
+            val, unit = m_single.groups()
+            return {"is_range": False, "value": val, "unit": unit}
+        # Fallback: return raw text
+        return {"is_range": False, "value": part, "unit": ""}
+
+    if "→" in s:
+        prior_part, current_part = [p.strip() for p in s.split("→", 1)]
+        prior = parse_part(prior_part)
+        current = parse_part(current_part)
+        return {"present": True, "has_prior": True, "prior": prior, "current": current, "change": change_text}
+
+    parsed = parse_part(s)
+    return {"present": True, "has_prior": False, "current": parsed, "change": change_text}
+
 # Get parameters from URL
 params = st.query_params
 press_release_id = params.get("id", "")
@@ -153,31 +220,281 @@ st.subheader("🔍 What the System Detected")
 # Display detected guidance items from alert
 guidance_items = alert.get("guidance_items", [])
 
+# Initialize session state for item feedback
+if "item_feedback" not in st.session_state:
+    st.session_state.item_feedback = {}
+if "missing_items" not in st.session_state:
+    st.session_state.missing_items = []
+
 if guidance_items:
-    for idx, item in enumerate(guidance_items, 1):
-        with st.expander(f"Detection #{idx}: {item.get('metric', 'Unknown').upper()}", expanded=True):
-            col_a, col_b, col_c = st.columns(3)
-            
-            with col_a:
-                st.metric("Metric", item.get("metric", "N/A"))
-            with col_b:
-                direction = item.get("direction", "N/A")
-                direction_emoji = {"up": "📈", "down": "📉", "unchanged": "➡️"}.get(direction, "❓")
-                st.metric("Direction", f"{direction_emoji} {direction}")
-            with col_c:
-                st.metric("Period", item.get("period", "N/A"))
-            
-            if item.get("value_str"):
-                st.info(f"**Value:** {item['value_str']}")
-            
+    for idx, item in enumerate(guidance_items):
+        item_key = f"item_{idx}"
+
+        # Header uses uppercase metric for consistency
+        item_type = (item.get("item_type") or "").lower()
+        header_label = (item.get("metric") or "Unknown").upper()
+        if item_type == "guidance_generic":
+            header_label = "GUIDANCE"
+        with st.expander(f"Detection #{idx+1}: {header_label}", expanded=True):
+            # Card wrapper
+            st.markdown("<div class='det-card'>", unsafe_allow_html=True)
+
+            # Badges row
+            direction = (item.get("direction") or "unknown").lower()
+            period = item.get("period", "N/A")
+            metric = item.get("metric", "N/A")
+            segment = item.get("segment") or ""
+
+            # Direction class and icon
+            dir_class = direction if direction in {"up","down","unchanged"} else "unknown"
+            icon = {"up": "📈", "down": "📉", "unchanged": "➡️"}.get(dir_class, "<span class='unknown-icon'>?</span>")
+
+            # Render badges, suppress Metric badge when it's the generic 'guidance'
+            badges_html = [
+                f"<div class='badge {dir_class}'><span class='label'>Direction</span>{icon} {direction}</div>",
+                f"<div class='badge'><span class='label'>Period</span>{period}</div>",
+            ]
+            if segment:
+                badges_html.append(f"<div class='badge'><span class='label'>Segment</span>{segment}</div>")
+            if item_type != "guidance_generic" and (metric or "").lower() != "guidance":
+                badges_html.insert(0, f"<div class='badge'><span class='label'>Metric</span>{metric}</div>")
+            st.markdown(
+                "<div class='badges'>" + "".join(badges_html) + "</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Per-item correctness checkbox (kept interactive)
+            item_correct = st.checkbox("✓ Correct", value=True, key=f"correct_{item_key}")
+
+            # Structured value rendering
+            # For generic 'guidance' metric, avoid showing structured value boxes
+            pv = _parse_value_str(item.get("value_str", "")) if item_type != "guidance_generic" and (metric or "").lower() != "guidance" else {"present": False}
+            if pv.get("present"):
+                if pv.get("has_prior"):
+                    # Show prior and current side-by-side
+                    st.markdown("<div class='value-grid'>", unsafe_allow_html=True)
+                    pr = pv["prior"]
+                    cr = pv["current"]
+                    # Prior box
+                    if pr.get("is_range"):
+                        prior_val = f"{pr['low']}–{pr['high']}{pr.get('unit','')}"
+                    else:
+                        prior_val = f"{pr.get('value','')}{pr.get('unit','')}"
+                    st.markdown(f"<div class='vbox'><span class='label'>Prior</span><div class='val'>{prior_val}</div></div>", unsafe_allow_html=True)
+                    # Current box
+                    if cr.get("is_range"):
+                        current_val = f"{cr['low']}–{cr['high']}{cr.get('unit','')}"
+                    else:
+                        current_val = f"{cr.get('value','')}{cr.get('unit','')}"
+                    st.markdown(f"<div class='vbox'><span class='label'>Current</span><div class='val'>{current_val}</div></div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    if pv.get("change"):
+                        st.caption(f"Change: {pv['change']}")
+                else:
+                    cr = pv["current"]
+                    if cr.get("is_range"):
+                        st.markdown("<div class='value-grid'>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='vbox'><span class='label'>Low</span><div class='val'>{cr['low']}{cr.get('unit','')}</div></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='vbox'><span class='label'>High</span><div class='val'>{cr['high']}{cr.get('unit','')}</div></div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<div class='value-box'><strong>Value:</strong> {cr.get('value','')}{cr.get('unit','')}</div>", unsafe_allow_html=True)
+                    if pv.get("change"):
+                        st.caption(f"Change: {pv['change']}")
+
+            # Text excerpt
             if item.get("text_snippet"):
-                st.markdown(f"**Text excerpt:**")
-                st.code(item["text_snippet"], language=None)
-            
+                st.markdown("**Text excerpt:**")
+                st.markdown(f"<div class='excerpt'>{item['text_snippet']}</div>", unsafe_allow_html=True)
+
+            # Corrections UI if marked incorrect
+            if not item_correct:
+                st.warning("**Corrections needed:**")
+                
+                # Item type selector
+                corrected_item_type = st.radio(
+                    "Item Type",
+                    ["financial_metric", "guidance_generic"],
+                    index=0 if item_type == "financial_metric" else 1,
+                    key=f"corr_item_type_{item_key}",
+                    horizontal=True,
+                    help="Financial metric: specific metric with numbers. Generic guidance: vague outlook without numbers."
+                )
+                
+                corr_col1, corr_col2 = st.columns(2)
+
+                with corr_col1:
+                    # Only show metric dropdown for financial_metric type
+                    if corrected_item_type == "financial_metric":
+                        # Import FIN_METRICS to extract all unique metric names
+                        try:
+                            from event_feed_app.events.guidance_change.plugin import FIN_METRICS
+                            # Extract unique metric names (first element of each tuple)
+                            fin_metric_set = sorted(set(m[0] for m in FIN_METRICS.values()))
+                        except:
+                            fin_metric_set = []
+                        
+                        # Build metric options: FIN_METRICS + common additions + fallback
+                        metric_options = fin_metric_set + ["eps", "capex", "cash_flow", "other"]
+                        # Deduplicate while preserving order
+                        seen = set()
+                        metric_options = [m for m in metric_options if not (m in seen or seen.add(m))]
+                        
+                        default_metric = item.get("metric", "other")
+                        if default_metric and default_metric not in metric_options:
+                            metric_options.insert(0, default_metric)
+                        
+                        corrected_metric = st.selectbox(
+                            "Correct Metric",
+                            metric_options,
+                            index=metric_options.index(default_metric) if default_metric in metric_options else 0,
+                            key=f"corr_metric_{item_key}"
+                        )
+                    else:
+                        corrected_metric = "guidance"
+                        st.info("Generic guidance has no specific metric")
+                    
+                    corrected_segment = st.text_input(
+                        "Segment / Business Unit",
+                        value=segment,
+                        key=f"corr_segment_{item_key}"
+                    )
+                    corrected_period = st.text_input(
+                        "Correct Period",
+                        value=item.get("period", ""),
+                        key=f"corr_period_{item_key}"
+                    )
+
+                with corr_col2:
+                    direction_options = ["raise", "lower", "maintain", "initiate", "withdraw", "unknown"]
+                    default_direction = item.get("direction", "raise")
+                    if default_direction not in direction_options:
+                        direction_options.append(default_direction)
+                    corrected_direction = st.selectbox(
+                        "Correct Direction",
+                        direction_options,
+                        index=direction_options.index(default_direction),
+                        key=f"corr_direction_{item_key}"
+                    )
+                    # Structured value inputs only for financial_metric type
+                    if corrected_item_type == "financial_metric":
+                        parsed_now = _parse_value_str(item.get("value_str", ""))
+                        if parsed_now.get("present") and not parsed_now.get("has_prior") and parsed_now.get("current", {}).get("is_range"):
+                            corrected_low = st.text_input(
+                                "Correct Low",
+                                value=str(parsed_now["current"].get("low", "")),
+                                key=f"corr_value_low_{item_key}"
+                            )
+                            corrected_high = st.text_input(
+                                "Correct High",
+                                value=str(parsed_now["current"].get("high", "")),
+                                key=f"corr_value_high_{item_key}"
+                            )
+                            corrected_value = f"{corrected_low}-{corrected_high}{parsed_now['current'].get('unit','')}"
+                        else:
+                            corrected_value = st.text_input(
+                                "Correct Value",
+                                value=item.get("value_str", ""),
+                                key=f"corr_value_{item_key}"
+                            )
+                    else:
+                        corrected_value = ""
+                        st.info("Generic guidance has no numeric value")
+
+                st.session_state.item_feedback[item_key] = {
+                    "item_index": idx,
+                    "is_correct": False,
+                    "detected": item,
+                    "corrections": {
+                        "item_type": corrected_item_type,
+                        "metric": corrected_metric,
+                        "direction": corrected_direction,
+                        "period": corrected_period,
+                        "value_str": corrected_value,
+                        "segment": corrected_segment,
+                    },
+                }
+            else:
+                st.session_state.item_feedback[item_key] = {
+                    "item_index": idx,
+                    "is_correct": True,
+                    "detected": item,
+                }
+
             if item.get("confidence"):
                 st.caption(f"Confidence: {item['confidence']*100:.0f}%")
+
+            # Close card wrapper
+            st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.info("No detailed guidance items available in alert payload")
+
+# Section for adding missing items
+st.markdown("---")
+st.subheader("➕ Missing Detections")
+st.caption("If the system missed any guidance items, add them here")
+
+# Button to add new missing item
+if st.button("+ Add Missing Item"):
+    st.session_state.missing_items.append({
+        "metric": "revenue",
+        "direction": "raise",
+        "period": "",
+        "value_str": "",
+        "location_hint": ""
+    })
+
+# Display forms for each missing item
+for missing_idx, missing_item in enumerate(st.session_state.missing_items):
+    with st.expander(f"Missing Item #{missing_idx + 1}", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            metric = st.selectbox(
+                "Metric",
+                ["revenue", "eps", "ebit", "ebitda", "margin", "capex", "cash_flow", "guidance", "other"],
+                index=["revenue", "eps", "ebit", "ebitda", "margin", "capex", "cash_flow", "guidance", "other"].index(missing_item.get("metric", "revenue")),
+                key=f"missing_metric_{missing_idx}"
+            )
+            period = st.text_input(
+                "Period (e.g., Q4_2025, FY_2025)",
+                value=missing_item.get("period", ""),
+                key=f"missing_period_{missing_idx}"
+            )
+        
+        with col2:
+            direction = st.selectbox(
+                "Direction",
+                ["raise", "lower", "maintain", "initiate", "withdraw"],
+                index=["raise", "lower", "maintain", "initiate", "withdraw"].index(missing_item.get("direction", "raise")),
+                key=f"missing_direction_{missing_idx}"
+            )
+            value_str = st.text_input(
+                "Value (e.g., $100M → $120M)",
+                value=missing_item.get("value_str", ""),
+                key=f"missing_value_{missing_idx}"
+            )
+        
+        location_hint = st.text_input(
+            "Location in text (optional)",
+            value=missing_item.get("location_hint", ""),
+            placeholder="e.g., 'paragraph 3', 'near end of document'",
+            key=f"missing_location_{missing_idx}"
+        )
+        
+        # Update the missing item in session state
+        st.session_state.missing_items[missing_idx] = {
+            "metric": metric,
+            "direction": direction,
+            "period": period,
+            "value_str": value_str,
+            "location_hint": location_hint
+        }
+        
+        # Remove button
+        if st.button("🗑️ Remove", key=f"remove_missing_{missing_idx}"):
+            st.session_state.missing_items.pop(missing_idx)
+            st.rerun()
 
 # Show overall alert metadata
 with st.expander("📊 Alert Metadata"):
@@ -238,15 +555,26 @@ else:
         if st.button(correct_label, use_container_width=True, type="primary", help=correct_help):
             user_id = params.get("user_id", "anonymous")
             
+            # Build extraction feedback metadata
+            extraction_feedback = {
+                "items": list(st.session_state.item_feedback.values()),
+                "missing_items": st.session_state.missing_items,
+                "overall_correct": all(item.get("is_correct", True) for item in st.session_state.item_feedback.values()) and len(st.session_state.missing_items) == 0
+            }
+            
             try:
                 feedback_id = feedback_store.save_feedback(
                     signal_type=signal_type,
                     alert_id=alert_id,
                     press_release_id=press_release_id,
                     user_id=user_id,
-                    is_correct=True
+                    is_correct=True,
+                    guidance_metadata={"extraction_feedback": extraction_feedback}
                 )
                 st.success(f"✅ Thank you! Feedback saved: {feedback_id}")
+                # Clear session state
+                st.session_state.item_feedback = {}
+                st.session_state.missing_items = []
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to save feedback: {e}")
@@ -340,9 +668,16 @@ else:
                 if submitted:
                     user_id = params.get("user_id", "anonymous")
                     
-                    # Build metadata
+                    # Build metadata including extraction feedback
+                    extraction_feedback = {
+                        "items": list(st.session_state.item_feedback.values()),
+                        "missing_items": st.session_state.missing_items,
+                        "overall_correct": all(item.get("is_correct", True) for item in st.session_state.item_feedback.values()) and len(st.session_state.missing_items) == 0
+                    }
+                    
                     guidance_metadata: dict[str, Any] = {
-                        "issue_type": issue_type
+                        "issue_type": issue_type,
+                        "extraction_feedback": extraction_feedback
                     }
                     
                     if signal_type == "guidance_change":
@@ -366,7 +701,10 @@ else:
                             notes=notes
                         )
                         st.success(f"✅ Thank you for the detailed feedback! Saved: {feedback_id}")
+                        # Clear session state
                         st.session_state.show_detailed_form = False
+                        st.session_state.item_feedback = {}
+                        st.session_state.missing_items = []
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Failed to save feedback: {e}")
@@ -386,4 +724,4 @@ with st.expander("📊 Document Metadata"):
 
 # Footer with copy ID button
 st.markdown("---")
-st.caption(f"Press Release ID: `{press_release_id}`")
+st.caption(f"Press Release ID: `{press_release_id}` · Viewer build: {BUILD_STAMP}")

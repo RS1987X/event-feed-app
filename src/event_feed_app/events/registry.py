@@ -5,9 +5,9 @@ from typing import Dict, List
 from .base import EventPlugin, validate_plugin
 
 # ---- Import and register plugins explicitly (simple & reliable) ----
-# Switch to v2/v3 guidance change plugin implementation (plugin2).
+# Guidance change plugin - refactored and consolidated implementation.
 # Keep old import comment for quick rollback if needed.
-from .guidance_change.plugin2 import plugin as guidance_change  # was: plugin (v0)
+from .guidance_change.plugin import plugin as guidance_change
 
 PLUGINS: Dict[str, EventPlugin] = {
     guidance_change.event_key: guidance_change,

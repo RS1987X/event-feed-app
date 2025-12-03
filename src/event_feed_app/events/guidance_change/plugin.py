@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re, json, hashlib, math
-from typing import Any, Dict, Iterable, Mapping, Tuple, Optional, Pattern, List
+from typing import Any, Dict, Iterable, Mapping, Tuple, Optional, Pattern, List, cast
 from datetime import datetime, timezone
 
 from ..base import EventPlugin
@@ -22,6 +22,10 @@ FIN_METRICS = {
     "ebitda": ("ebitda","level","ccy"),
     "ebit": ("ebit","level","ccy"),
     "ebita": ("ebita","level","ccy"),
+    "adjusted ebita": ("adjusted ebita","level","ccy"),
+    "adj. ebita": ("adjusted ebita","level","ccy"),
+    "justerad ebita": ("adjusted ebita","level","ccy"),
+    
     "operating margin": ("operating_margin","margin","pct"),
     #"margin": ("operating_margin","margin","pct"),
     "ebita margin": ("ebita_margin","margin","pct"),
@@ -33,9 +37,55 @@ FIN_METRICS = {
     "försäljning": ("net_sales","level","ccy"),
     "rörelsemarginal": ("operating_margin","margin","pct"),
     "organisk tillväxt": ("organic_growth","growth","pct"),
-    "jämförbar": ("organic_growth","growth","pct"),
     "ebita marginal": ("ebita_margin","margin","pct"),
 }
+
+FIN_METRICS.update({
+    # Already have: "omsättning": ("revenue","level","ccy"),
+    "omsättningen": ("revenue","level","ccy"),
+
+    # Already have: "försäljning": ("net_sales","level","ccy"),
+    "försäljningen": ("net_sales","level","ccy"),
+
+    # EBIT / operating margin Swedish variants
+    "rörelseresultat":  ("ebit","level","ccy"),
+    "rörelseresultatet":("ebit","level","ccy"),
+    "rörelsemarginalen":("operating_margin","margin","pct"),
+
+    # EBITA margin definite
+    "ebita-marginalen": ("ebita_margin","margin","pct"),
+})
+
+FIN_METRICS.update({
+    # Revenue synonyms
+    "nettoomsättning":      ("revenue", "level", "ccy"),
+    "nettoomsättningen":    ("revenue", "level", "ccy"),
+    # If acceptable for your corpus, include these two. If “intäkter” is too broad for you, omit them.
+    "intäkter":             ("revenue", "level", "ccy"),
+    "intäkterna":           ("revenue", "level", "ccy"),
+
+    # Operating margin variants
+    "rörelsemarginal":      ("operating_margin", "margin", "pct"),   # <- missing base form
+    "rörelsemarginalen":    ("operating_margin", "margin", "pct"),   # (you already had this)
+
+    # EBIT margin used as operating margin in Swedish PRs
+    "ebit-marginal":        ("operating_margin", "margin", "pct"),
+    "ebit marginal":        ("operating_margin", "margin", "pct"),
+    "ebit-marginalen":      ("operating_margin", "margin", "pct"),
+
+    # EBITDA/EBITA margin (you already had ebita-marginalen)
+    "ebitda-marginal":      ("ebitda_margin", "margin", "pct"),
+    "ebitda marginal":      ("ebitda_margin", "margin", "pct"),
+    "ebitda-marginalen":    ("ebitda_margin", "margin", "pct"),
+    "ebita-marginal":       ("ebita_margin",  "margin", "pct"),
+    "ebita marginal":       ("ebita_margin",  "margin", "pct"),
+    
+    
+    # you already have:
+    # "ebita-marginalen":   ("ebita_margin",  "margin", "pct"),
+})
+
+
 
 APPROX_WORDS = (
     r"(?:~|≈|"                        # symbols
@@ -44,11 +94,14 @@ APPROX_WORDS = (
 )
 
 PERCENT_RANGE = re.compile(r"""
-    (?P<approx>about|around|approximately|approx\.?|close\sto|near|circa|c\.|~)?\s*
+    (?P<approx>
+        about|around|approximately|approx\.?|close\sto|near|circa|c\.|~|
+        omkring|runt|ungefär|cirka|ca\.?|c\:a|≈
+    )?\s*
     (?P<a>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
     (?P<unit>%|percent|procent)\s?
     (?:
-        (?:-|–|to)\s?                       # dash, en dash, or the word "to"
+        (?:-|–|to)\s?
         (?P<b>[+-]?\d{1,2}(?:[.,]\d{1,2})?)\s?
         (?P=unit)
     )?
@@ -57,19 +110,22 @@ PERCENT_RANGE = re.compile(r"""
 
 NUM_GROUP = r"\d{1,3}(?:[ ,.\u00A0\u202F\u2009’']\d{3})*(?:[.,]\d{1,2})?"
 
+# Add Swedish scale tokens to the trailing scale group
+_SCALE = r"(?:million|mn|m|billion|bn|b|thousand|k|mkr|mnkr|mdr|mdkr|tkr)"
+
 CCY_NUMBER = re.compile(
     r"(?P<ccy>SEK|EUR|USD|NOK|DKK)\s?"
-    r"(?P<num>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)"
-    r"(?:\s*(?P<scale>million|mn|m|billion|bn|thousand|k))?",
+    rf"(?P<num>{NUM_GROUP})"
+    rf"(?:\s*(?P<scale>{_SCALE}))?",
     re.I
 )
 
 CCY_RANGE = re.compile(
     r"(?P<ccy>SEK|EUR|USD|NOK|DKK)\s?"
-    r"(?P<a>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)\s?"
+    rf"(?P<a>{NUM_GROUP})\s?"
     r"(?:-|–|to)\s?"
-    r"(?P<b>\d{1,3}(?:[ .,’]\d{3})*(?:[.,]\d{1,2})?)"
-    r"(?:\s*(?P<scale>million|mn|m|billion|bn|thousand|k))?",
+    rf"(?P<b>{NUM_GROUP})"
+    rf"(?:\s*(?P<scale>{_SCALE}))?",
     re.I
 )
 
@@ -83,12 +139,17 @@ def _apply_scale(value: float, scale: str | None) -> float:
     if not scale:
         return value
     s = scale.strip().lower()
-    if s in {"m", "mn", "million"}:
-        return value                 # already millions
-    if s in {"bn", "billion", "b"}:
-        return value * 1000.0        # billions -> millions
-    if s in {"k", "thousand"}:
-        return value / 1000.0        # thousands -> millions
+    # strip trivial trailing punctuation
+    s = s.rstrip('.:;,')
+    # millions
+    if s in {"m", "mn", "million", "mkr", "mnkr"}:
+        return value
+    # billions -> millions
+    if s in {"bn", "billion", "b", "mdr", "mdkr"}:
+        return value * 1000.0
+    # thousands -> millions
+    if s in {"k", "thousand", "tkr"}:
+        return value / 1000.0
     return value
 
 
@@ -125,22 +186,50 @@ def _is_num(x):
     except Exception:
         return False
 
-def _norm_period(text: str) -> str:
+def _norm_period(text: str, reference_year: Optional[int] = None) -> str:
+    """Extract and normalize period from text, with year validation."""
     m = PERIOD.search(text)
     if not m:
         return "UNKNOWN"
     g = m.groupdict()
-    if g.get("q") and g.get("y2"): return f"Q{g['q']}-{g['y2']}"
-    if g.get("h") and g.get("y3"): return f"H{g['h']}-{g['y3']}"
-    y = g.get("y")
-    if y: return f"FY{y}"
-    if re.search(r"full[-\s]?year|helår", text, re.I): return "FY-UNKNOWN"
+    
+    # Extract year and validate
+    year = g.get("y") or g.get("y2") or g.get("y3")
+    if year and not _is_valid_guidance_year(year, reference_year):
+        # Invalid year - try to find another match
+        for m2 in PERIOD.finditer(text):
+            g2 = m2.groupdict()
+            year2 = g2.get("y") or g2.get("y2") or g2.get("y3")
+            if year2 and _is_valid_guidance_year(year2, reference_year):
+                # Found a valid year
+                if g2.get("q") and g2.get("y2"):
+                    return f"Q{g2['q']}-{g2['y2']}"
+                if g2.get("h") and g2.get("y3"):
+                    return f"H{g2['h']}-{g2['y3']}"
+                if g2.get("y"):
+                    return f"FY{g2['y']}"
+        # No valid year found
+        return "UNKNOWN"
+    
+    # Valid year found in first match
+    if g.get("q") and g.get("y2"):
+        return f"Q{g['q']}-{g['y2']}"
+    if g.get("h") and g.get("y3"):
+        return f"H{g['h']}-{g['y3']}"
+    if year:
+        return f"FY{year}"
+    if re.search(r"full[-\s]?year|helår", text, re.I):
+        return "FY-UNKNOWN"
     return "PERIOD-UNKNOWN"
 
 
 def _detect_basis(s: str) -> str:
-    if BASIS_ORGANIC.search(s): return "organic"
-    if BASIS_CCFX.search(s): return "cc_fx"
+    """Return basis tag or default 'reported' instead of implicit None."""
+    if BASIS_ORGANIC.search(s):
+        return "organic"
+    if BASIS_CCFX.search(s):
+        return "cc_fx"
+    return "reported"
 def _to_float(x: str) -> float:
     s = str(x).strip()
     if not s:
@@ -354,30 +443,84 @@ def _span_in_sentence(span: tuple[int,int], sent_span: tuple[int,int]) -> bool:
     (a, b), (s, e) = span, sent_span
     return a >= s and b <= e
 
-def _norm_period_sentence(s: str) -> str:
+def _norm_period_sentence(s: str, reference_year: Optional[int] = None) -> str:
+    """Extract and normalize period from a sentence, with year validation."""
     m = PERIOD.search(s)
     if not m:
         return "UNKNOWN"
     g = m.groupdict()
-    if g.get("q") and g.get("y2"): return f"Q{g['q']}-{g['y2']}"
-    if g.get("h") and g.get("y3"): return f"H{g['h']}-{g['y3']}"
-    y = g.get("y")
-    if y: return f"FY{y}"
-    if re.search(r"full[-\s]?year|helår", s, re.I): return "FY-UNKNOWN"
+    
+    # Extract year and validate
+    year = g.get("y") or g.get("y2") or g.get("y3")
+    if year and not _is_valid_guidance_year(year, reference_year):
+        # Invalid year - try to find another match in this sentence
+        for m2 in PERIOD.finditer(s):
+            g2 = m2.groupdict()
+            year2 = g2.get("y") or g2.get("y2") or g2.get("y3")
+            if year2 and _is_valid_guidance_year(year2, reference_year):
+                # Found a valid year
+                if g2.get("q") and g2.get("y2"):
+                    return f"Q{g2['q']}-{g2['y2']}"
+                if g2.get("h") and g2.get("y3"):
+                    return f"H{g2['h']}-{g2['y3']}"
+                if g2.get("y"):
+                    return f"FY{g2['y']}"
+        # No valid year found
+        return "UNKNOWN"
+    
+    # Valid year found
+    if g.get("q") and g.get("y2"):
+        return f"Q{g['q']}-{g['y2']}"
+    if g.get("h") and g.get("y3"):
+        return f"H{g['h']}-{g['y3']}"
+    if year:
+        return f"FY{year}"
+    if re.search(r"full[-\s]?year|helår", s, re.I):
+        return "FY-UNKNOWN"
     return "PERIOD-UNKNOWN"
 
-def _period_from_near_span(text, span, win=160):
+def _is_valid_guidance_year(year_str: str, reference_year: Optional[int] = None) -> bool:
+    """
+    Validate if a year is plausible for guidance (not historical data, addresses, etc.).
+    Guidance is typically for current year -1 to +2 years.
+    """
+    try:
+        year = int(year_str)
+        if reference_year is None:
+            from datetime import datetime
+            reference_year = datetime.now().year
+        
+        # Allow current year ± 2 years (e.g., for 2025: 2023-2027)
+        min_year = reference_year - 2
+        max_year = reference_year + 2
+        return min_year <= year <= max_year
+    except (ValueError, TypeError):
+        return False
+
+def _period_from_near_span(text, span, win=160, reference_year: Optional[int] = None):
+    """Extract period from text near a span, with year validation."""
     s, e = span
     lo = max(0, s - win); hi = min(len(text), e + win)
     seg = text[lo:hi]
-    m = re.search(r'\bFY[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"FY{m.group(1)}"
-    m = re.search(r'\b(Q[1-4])[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"{m.group(1).upper()}-{m.group(2)}"
-    m = re.search(r'\b(H[12])[-\s]?((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"{m.group(1).upper()}-{m.group(2)}"
-    m = re.search(r'\b((?:20|19)\d{2})\b', seg, re.I)
-    if m: return f"FY{m.group(1)}"
+    
+    # Try explicit FY/Q/H formats first (more reliable)
+    m = re.search(r'\bFY[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(1), reference_year):
+        return f"FY{m.group(1)}"
+    
+    m = re.search(r'\b(Q[1-4])[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(2), reference_year):
+        return f"{m.group(1).upper()}-{m.group(2)}"
+    
+    m = re.search(r'\b(H[12])[-\s]?(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(2), reference_year):
+        return f"{m.group(1).upper()}-{m.group(2)}"
+    
+    # Fallback: bare year (least reliable, only if valid)
+    m = re.search(r'\b(\d{4})\b', seg, re.I)
+    if m and _is_valid_guidance_year(m.group(1), reference_year):
+        return f"FY{m.group(1)}"
+    
     return None
 
 def _period_from_doc(doc):
@@ -403,54 +546,51 @@ class GuidanceChangePlugin(EventPlugin):
     taxonomy_class = "earnings_report"
 
     def __init__(self):
-        """Initialize fields and compiled regex holders."""
-        self.event_key = "guidance_change"
-        # YAML / runtime config
-        self.cfg: dict = {}
-        self.thresholds: dict = {}
+        """Initialize safe defaults; configure() fills in real values."""
+        # Basic config and thresholds
+        self.cfg = {}
+        self.thresholds = {}
 
-        # Strong trigger regexes (kept regex-based)
-        # List of (label, compiled_pattern) for provenance + combined union
-        self.trigger_regexes: list[tuple[str, re.Pattern]] = []
-        self.trigger_rx: re.Pattern = _rx_match_nothing()
+        # Exclusions and rule sets
+        self.exclusions = {}
+        self.prox_rules = []
+        self.numeric_rules = []
 
-        # Directional / cue / disclaimers / invites
-        self.rx_fwd_cue: re.Pattern = _rx_match_nothing()   # kept for back-compat
-        self.rx_dir_up:  re.Pattern = _rx_match_nothing()
-        self.rx_dir_dn:  re.Pattern = _rx_match_nothing()
-        self.rx_invite:  re.Pattern = _rx_match_nothing()
-        self.rx_disclaimer_blk: re.Pattern = _rx_match_nothing()
-        self.rx_disclaimer_inl: re.Pattern = _rx_match_nothing()
+        # Trigger regexes and unions
+        self.trigger_regexes = []
+        self.trigger_rx = _rx_match_nothing()
+
+        # Directional / invite / disclaimers
+        self.rx_fwd_cues = _rx_match_nothing()
+        self.rx_fwd_cue = self.rx_fwd_cues  # back-compat alias
+        self.rx_dir_up = _rx_match_nothing()
+        self.rx_dir_dn = _rx_match_nothing()
+        self.rx_invite = _rx_match_nothing()
+        self.rx_disclaimer_blk = _rx_match_nothing()
+        self.rx_disclaimer_inl = _rx_match_nothing()
 
         # Suppressors
-        self.rx_sup_analyst: re.Pattern = _rx_match_nothing()
-        self.rx_sup_macro:   re.Pattern = _rx_match_nothing()
-        self.rx_sup_ma:      re.Pattern = _rx_match_nothing()
-        self.rx_sup_debt:    re.Pattern = _rx_match_nothing()
+        self.rx_sup_analyst = _rx_match_nothing()
+        self.rx_sup_macro = _rx_match_nothing()
+        self.rx_sup_ma = _rx_match_nothing()
+        self.rx_sup_debt = _rx_match_nothing()
 
-        # Proximity engine (defaults; overridden by YAML thresholds.proximity)
-        self.prox_mode: str = "token"      # "token" | "char" | "both" | "either"
-        self.prox_chars: int = 120         # back-compat / char gating
-        self.prox_tokens: int = 25         # token window (will be tightened by YAML)
-        self.allow_cross_sentence: bool = False
-        self.look_left_sentences: int = 0
-        self.look_right_sentences: int = 0
+        # Proximity defaults
+        self.prox_mode = "token"
+        self.prox_chars = 120
+        self.prox_tokens = 25
+        self.allow_cross_sentence = False
+        self.look_left_sentences = 0
+        self.look_right_sentences = 0
 
-        # Unchanged markers from thresholds.proximity
-        self.unchanged_markers: dict[str, list[str]] = {"en": [], "sv": []}
-
-        # Literal term lists (used by token proximity & direction)
-        self.fwd_cue_terms: list[str] = []
-        self.dir_up_terms:  list[str] = []
-        self.dir_dn_terms:  list[str] = []
-        #self.margin_prefixes: list[str] = []
-        self.margin_prefixes = ("operating","gross","ebit","ebitda","net","rörelse","brutto")
-        # Metrics: literal phrases to scan for (built from METRIC_MAP)
-        self.fin_metric_terms: list[str] = []
-
-        # NEW: parsed rule sets from YAML
-        self.prox_rules: list[dict] = []     # patterns.proximity_triggers
-        self.numeric_rules: list[dict] = []  # patterns.metric_numeric_triggers
+        # Term lists / markers
+        self.unchanged_markers = {"en": [], "sv": []}
+        self.fwd_cue_terms = []
+        self.directional_cues = set()  # Cues that must appear before metric
+        self.dir_up_terms = []
+        self.dir_dn_terms = []
+        self.margin_prefixes = ["operating","gross","ebit","ebitda","net","rörelse","brutto"]
+        self.fin_metric_terms = []
         # safe defaults until configure() is called
         self.expected_forward_terms = ()
         self.expected_past_terms = ()
@@ -462,8 +602,18 @@ class GuidanceChangePlugin(EventPlugin):
 
         self.text_stub_rules: list[dict] = []
 
-        # Document-level exclusions
-        self.exclusion_rules: dict = {}
+    # ---------------- Gate ----------------
+    def gate(self, doc: Mapping[str, Any]) -> bool:
+        """
+        Gate intentionally passes all documents through (returns True).
+        
+        The original gate was too restrictive (required earnings labels OR aggressive 
+        trigger phrases), blocking many legitimate guidance announcements. For precision 
+        guidance detection, the detect() method's internal logic is sufficient.
+        
+        See guidance_change.py line 596-597 where the original job also bypasses gate.
+        """
+        return True  # Pass all documents through; detect() handles precision filtering
 
     def configure(self, cfg: Optional[dict]) -> None:
         """
@@ -534,6 +684,18 @@ class GuidanceChangePlugin(EventPlugin):
         tune_terms = list((terms_cfg or {}).get("fwd_cue_terms") or [])
         self.fwd_cue_terms = [str(x) for x in (fwd_en + fwd_sv + tune_terms)]
 
+        # Directional cues (must appear BEFORE metric to be valid)
+        dir_cue_cfg = (fwd_cfg.get("directional_cues") or {})
+        dir_en = list(dir_cue_cfg.get("en") or [])
+        dir_sv = list(dir_cue_cfg.get("sv") or [])
+        self.directional_cues = set(str(x).lower() for x in (dir_en + dir_sv))
+
+        # Forward-cue exclusion phrases (e.g., "target market", "target audience")
+        excl_phrases_cfg = (fwd_cfg.get("exclusion_phrases") or {})
+        excl_en = list(excl_phrases_cfg.get("en") or [])
+        excl_sv = list(excl_phrases_cfg.get("sv") or [])
+        self.fwd_cue_exclusion_phrases = [str(x) for x in (excl_en + excl_sv)]
+
         # Compile a single union regex for “forward cues” (used by past-tense suppression guards)
         def _wb(term: str) -> str:
             return r'(?<!\w)' + re.escape(term).replace(r'\ ', r'\s+') + r'(?!\w)'
@@ -544,6 +706,12 @@ class GuidanceChangePlugin(EventPlugin):
         )
         # Back-compat alias if other code references rx_fwd_cue
         self.rx_fwd_cue = self.rx_fwd_cues
+        
+        # Compile exclusion phrase regex
+        self.rx_fwd_cue_exclusions = (
+            re.compile("|".join(_wb(p) for p in self.fwd_cue_exclusion_phrases), re.I)
+            if self.fwd_cue_exclusion_phrases else _rx_match_nothing()
+        )
 
         # -------- Directional / invite / disclaimers (regex unions) --------
         self.rx_dir_up         = _compile_union_group(patterns_cfg, "dir_up")
@@ -558,6 +726,10 @@ class GuidanceChangePlugin(EventPlugin):
         self.rx_sup_macro   = _compile_union_from_dict(sups.get("macro"))
         self.rx_sup_ma      = _compile_union_from_dict(sups.get("ma"))
         self.rx_sup_debt    = _compile_union_from_dict(sups.get("debt"))
+
+        # -------- Document-level exclusions --------
+        self.exclusions = patterns_cfg.get("exclusions") or {}
+        _dprint(f"[config] Loaded exclusions: {list(self.exclusions.keys())}")
 
         # -------- Term lists (with sensible defaults) --------
         def _get_terms(key: str, fallback: list[str]) -> list[str]:
@@ -677,70 +849,57 @@ class GuidanceChangePlugin(EventPlugin):
             r["require_period_token"] = bool(r.get("require_period_token", True))
             self.text_stub_rules.append(r)
 
-        # -------- Document-level exclusions --------
-        exclusions_cfg = patterns_cfg.get("exclusions") or {}
-        self.exclusion_rules = {}
-        
-        for exc_name, exc_config in exclusions_cfg.items():
-            rule = {
-                "indicators": [ind.lower() for ind in (exc_config.get("indicators") or [])],
-                "logic": exc_config.get("logic", "indicator")
-            }
-            
-            # Handle different secondary term keys (law_firms, firms, etc.)
-            for key in ["law_firms", "firms", "companies", "terms"]:
-                if key in exc_config:
-                    rule["secondary"] = [term.lower() for term in exc_config[key]]
-                    break
-            
-            self.exclusion_rules[exc_name] = rule
-
-
-    # in the plugin class
-    def detect(self, doc):
-        # use v3 by default
-        yield from self._detect_v3(doc)
-        
-    def _should_exclude(self, text_lower: str) -> bool:
+    def _should_exclude_document(self, text: str) -> bool:
         """
         Check if document should be excluded based on configured exclusion rules.
         
         Args:
-            text_lower: Lowercase document text
+            text: Full document text (title + body)
             
         Returns:
             True if document should be excluded, False otherwise
         """
-        for exc_name, rule in self.exclusion_rules.items():
-            indicators = rule.get("indicators", [])
-            secondary = rule.get("secondary", [])
-            logic = rule.get("logic", "indicator")
+        # Guard: exclusions may be unset if configure() wasn't called
+        exclusions = getattr(self, "exclusions", {}) or {}
+        if not exclusions:
+            return False
             
-            has_indicator = sum(1 for ind in indicators if ind in text_lower)
-            has_secondary = any(term in text_lower for term in secondary) if secondary else False
+        text_lower = text.lower()
+        
+        # Check securities lawsuits exclusion (OR logic: either indicator OR law firm)
+        lawsuit_cfg = exclusions.get("securities_lawsuits", {})
+        if lawsuit_cfg:
+            indicators = [ind.lower() for ind in lawsuit_cfg.get("indicators", [])]
+            law_firms = [firm.lower() for firm in lawsuit_cfg.get("law_firms", [])]
             
-            # Apply configured logic
-            if "AND" in logic.upper():
-                # Require both indicator and secondary term
-                if has_indicator > 0 and has_secondary:
-                    _dprint(f"[exclude] {exc_name} detected (AND logic)")
-                    return True
-            elif "OR" in logic.upper() and ("2+" in logic or "MULTIPLE" in logic.upper()):
-                # Require multiple indicators OR (indicator + secondary)
-                if has_indicator >= 2 or (has_indicator >= 1 and has_secondary):
-                    _dprint(f"[exclude] {exc_name} detected (2+ indicators OR indicator+secondary)")
-                    return True
-            elif has_indicator > 0:
-                # Simple indicator presence
-                _dprint(f"[exclude] {exc_name} detected")
+            has_indicator = any(ind in text_lower for ind in indicators)
+            has_law_firm = any(firm in text_lower for firm in law_firms)
+            
+            # OR logic: exclude if either condition is met
+            if has_indicator or has_law_firm:
+                _dprint("[exclude] Securities/legal content detected")
+                return True
+        
+        # Check market research exclusion
+        research_cfg = exclusions.get("market_research", {})
+        if research_cfg:
+            indicators = [ind.lower() for ind in research_cfg.get("indicators", [])]
+            firms = [firm.lower() for firm in research_cfg.get("firms", [])]
+            
+            indicator_count = sum(1 for ind in indicators if ind in text_lower)
+            has_firm = any(firm in text_lower for firm in firms)
+            
+            # Logic: "2+ indicators OR (indicator AND firm)"
+            if indicator_count >= 2 or (indicator_count >= 1 and has_firm):
+                _dprint("[exclude] Market research report detected")
                 return True
         
         return False
-        
-        # if getattr(self, "_use_v2", False):
-        #     yield from self._detect_v2(doc)
-        # else:
-        #     yield from self._detect_v1(doc)
+
+
+    def detect(self, doc):
+        """Main detection entrypoint."""
+        yield from self._detect_impl(doc)
 # '
 #     # ------ 1) Gate: cheap prefilter ------
 #     def gate(self, doc: Mapping[str, Any]) -> bool:
@@ -753,8 +912,8 @@ class GuidanceChangePlugin(EventPlugin):
 #         head = f"{doc.get('title','')} {doc.get('body','')[:800]}"
 #         return bool(self.trigger_rx.search(head))
   
-    # ------ 2) Detect numeric/text candidates ------
-    def _detect_v1(self, doc: Mapping[str, Any]) -> Iterable[dict]:
+    # ------ Main detection implementation ------
+    def _detect_impl(self, doc):
         """
         Extract earnings-guidance candidates from a document (title/body). A document
         passes the gate if it has either (A) a strong trigger or (B) a forward-looking
@@ -911,7 +1070,7 @@ class GuidanceChangePlugin(EventPlugin):
             return False
 
         # ---------------- Proximity rules from YAML ----------------
-        prox_hit = None  # {"rule": rule_dict, "meta": proximity_meta}
+        prox_hit: Optional[Dict[str, Any]] = None  # {"rule": rule_dict, "meta": proximity_meta}
         best_d = 10**9
 
         for r in self.prox_rules:
@@ -936,19 +1095,21 @@ class GuidanceChangePlugin(EventPlugin):
             if ok:
                 # Optional: enforce period token for "initiate" rules
                 if r.get("require_period_token"):
+                    if not meta:
+                        continue
                     m0, _ = meta["metric_span"]
                     j = next((i for i, (_,sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
                     if j is None or not _has_period_near(toks, j, window=r["window_tokens"]):
                         continue
 
                 # Keep closest by token distance
-                if meta["token_dist"] < best_d:
+                if meta and meta.get("token_dist", 10**9) < best_d:
                     prox_hit = {"rule": r, "meta": meta}
-                    best_d = meta["token_dist"]
+                    best_d = int(meta.get("token_dist", best_d))
 
         # Optional char proximity if you still support char/either/both
-        char_ok = False
-        if prox_hit:
+        char_ok: bool = False
+        if prox_hit and prox_hit.get("meta"):
             cs, ce = prox_hit["meta"]["cue_span"]; ms, me = prox_hit["meta"]["metric_span"]
             cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
             char_ok = abs(cue_c - met_c) <= self.prox_chars
@@ -965,22 +1126,49 @@ class GuidanceChangePlugin(EventPlugin):
                             break
                 if numeric_gate_ok:
                     break
-         # ---------------- Legacy fallback: fwd-cue ↔ metric proximity ----------------
+    # ---------------- Legacy fallback: fwd-cue ↔ metric proximity ----------------
         # Covers cases like: "expects revenue to be EUR ..." (no 'guidance' token)
+        _dprint(f"[pre-legacy] trig={trig is not None}, prox_hit={prox_hit is not None}, numeric_gate_ok={numeric_gate_ok}, fwd_cues={len(self.fwd_cue_terms)}, metrics={len(self.fin_metric_terms)}")
         if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
             ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
                 text, self.fwd_cue_terms, self.fin_metric_terms,
                 window=self.prox_tokens, min_stem=3
             )
+            _dprint(f"[legacy_fallback] ok={ok_legacy}, meta={meta_legacy is not None}")
             if ok_legacy and meta_legacy:
-                prox_hit = {
-                    "rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"},
-                    "meta": meta_legacy,
-                }
-                # keep your char gating consistent
-                cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
-                cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
-                char_ok = abs(cue_c - met_c) <= self.prox_chars
+                # Check directional constraint: some cues must appear BEFORE the metric
+                cue_term = meta_legacy.get("cue_term", "").lower()
+                cue_start = meta_legacy["cue_span"][0]
+                metric_start = meta_legacy["metric_span"][0]
+                _dprint(f"[directional] cue_term='{cue_term}', in directional_cues={cue_term in self.directional_cues}, cue_start={cue_start}, metric_start={metric_start}")
+                if cue_term in self.directional_cues:
+                    # For directional cues like "target", require cue_span < metric_span
+                    cue_start = meta_legacy["cue_span"][0]
+                    metric_start = meta_legacy["metric_span"][0]
+                    if cue_start >= metric_start:
+                        # Cue appears AFTER metric - invalid for directional cues
+                        # e.g., "revenue model in target market" - skip this
+                        _dprint(f"[directional] Skipping '{cue_term}' - appears AFTER metric (pos {cue_start} >= {metric_start})")
+                        pass
+                    else:
+                        # Valid: cue before metric (e.g., "target revenue of X")
+                        _dprint(f"[directional] Accepting '{cue_term}' - appears BEFORE metric (pos {cue_start} < {metric_start})")
+                        prox_hit = {
+                            "rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"},
+                            "meta": meta_legacy,
+                        }
+                        cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
+                        cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
+                        char_ok = abs(cue_c - met_c) <= self.prox_chars
+                else:
+                    # Non-directional cue - allow either order
+                    prox_hit = {
+                        "rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"},
+                        "meta": meta_legacy,
+                    }
+                    cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
+                    cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
+                    char_ok = abs(cue_c - met_c) <= self.prox_chars
         
         # ---------------- Gate decision ----------------
         if not trig:
@@ -1303,845 +1491,15 @@ class GuidanceChangePlugin(EventPlugin):
                 "period": period,
                 "direction_hint": direction_hint,
                 "_trigger_source":  trigger_source,
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
                 "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
             }
 
-
-        
-    # --- v2 wrapper: same gate/provenance as v1, modular extraction ---
-    def _detect_v2(self, doc):
-        """
-        Behavior-preserving refactor of _detect_v1:
-        - Keeps the exact gate/provenance logic from v1.
-        - Delegates numeric extraction to small helpers.
-        """
-        import re
-
-        text = f"{doc.get('title','')}\n{doc.get('body','')}"
-        head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
-
-        # ---------------- Strong trigger (regex-based) ----------------
-        trig = self._find_trigger(text)
-        if trig:
-            ss, se = trig["span"]
-            ctx_s = max(0, ss - 60); ctx_e = min(len(text), se + 60)
-            if NEGATION_RX.search(text[ctx_s:ctx_e]):
-                trig = None  # e.g., "no impairment" near trigger
-
-        # ---------------- Tokenization & sentences (once) ----------------
-        toks_spans = [(m.group(0), m.span()) for m in _TOKEN_RX.finditer(norm(text))]
-        toks = [t for t,_ in toks_spans]
-        sents = list(_sentences_with_spans(text))
-
-        def _sent_idx(span):
-            for k,(ss,se,_) in enumerate(sents):
-                if _span_in_sentence(span,(ss,se)): return k
-            return None
-
-        PERIOD_TOKENS = {"fy","full-year","h1","h2","q1","q2","q3","q4"}
-
-        def _has_number_near(toks, i, window=8):
-            lo, hi = max(0, i-window), min(len(toks), i+window+1)
-            seg = " ".join(toks[lo:hi])
-            return bool(PERCENT_RANGE.search(seg) or CCY_NUMBER.search(seg))
-
-        def _has_period_near(toks, i, window=8):
-            lo, hi = max(0, i-window), min(len(toks), i+window+1)
-            for t in toks[lo:hi]:
-                if t in PERIOD_TOKENS: return True
-                if len(t) == 4 and t.isdigit() and t.startswith(("20","19")): return True
-            return False
-
-        # ---------------- Proximity rules from YAML ----------------
-        prox_hit = None  # {"rule": rule_dict, "meta": proximity_meta}
-        best_d = 10**9
-
-        for r in self.prox_rules:
-            ok, meta = (False, None)
-
-            # Case A: verbs + metrics (e.g., raise/lower/reaffirm near guidance)
-            if r.get("verbs"):
-                ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["verbs"], set_b=r["guidance_markers"],
-                    window=r["window_tokens"], min_stem=3,
-                    same_sentence=r.get("same_sentence", True)
-                )
-
-            # Case B: metric + unchanged markers (verb-less: "guidance unchanged")
-            elif r.get("unchanged_tokens"):
-                ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["guidance_markers"], set_b=r["unchanged_tokens"],
-                    window=r["window_tokens"], min_stem=3,
-                    same_sentence=r.get("same_sentence", True)
-                )
-
-            if ok:
-                # Optional: enforce period token for "initiate" rules
-                if r.get("require_period_token"):
-                    m0, _ = meta["metric_span"]
-                    j = next((i for i, (_,sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
-                    if j is None or not _has_period_near(toks, j, window=r["window_tokens"]):
-                        continue
-
-                # Keep closest by token distance
-                if meta["token_dist"] < best_d:
-                    prox_hit = {"rule": r, "meta": meta}
-                    best_d = meta["token_dist"]
-
-        # Optional char proximity (same as v1)
-        char_ok = False
-        if prox_hit:
-            cs, ce = prox_hit["meta"]["cue_span"]; ms, me = prox_hit["meta"]["metric_span"]
-            cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
-            char_ok = abs(cue_c - met_c) <= self.prox_chars
-
-        # ---------------- Numeric gate for statement-only guidance ----------------
-        numeric_gate_ok = False
-        if not trig and not prox_hit and self.numeric_rules:
-            for r in self.numeric_rules:
-                for i, (tok, sp) in enumerate(toks_spans):
-                    if any(tok.startswith(m) for m in r["guidance_markers"]):
-                        if (not r["require_number"]) or _has_number_near(toks, i, window=r["window_tokens"]):
-                            numeric_gate_ok = True
-                            break
-                if numeric_gate_ok:
-                    break
-        
-        # Optional bare "guidance + period" text gate (no numbers/verbs)  # NEW
-        text_gate_span = None
-        if not trig and not prox_hit and not numeric_gate_ok:  # NEW
-            for i, (tok, sp) in enumerate(toks_spans):
-                if tok.startswith("guidance") and _has_period_near(toks, i, window=8):
-                    text_gate_span = sp
-                    break
-
-
-        # Legacy fwd-cue ↔ metric fallback (unchanged)
-        if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
-            ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
-                text, self.fwd_cue_terms, self.fin_metric_terms,
-                window=self.prox_tokens, min_stem=3
-            )
-            if ok_legacy and meta_legacy:
-                prox_hit = {
-                    "rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"},
-                    "meta": meta_legacy,
-                }
-                cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
-                cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
-                char_ok = abs(cue_c - met_c) <= self.prox_chars
-
-        # ---------------- Gate decision (unchanged) ----------------
-        if not trig:
-            mode = self.prox_mode
-            prox_ok = (prox_hit is not None) if mode=="token" else \
-                    (char_ok)              if mode=="char"  else \
-                    (prox_hit and char_ok) if mode=="both"  else \
-                    (prox_hit or char_ok)
-            
-            if not (prox_ok or numeric_gate_ok or text_gate_span):   # NEW: include text_gate_span
-                return
-
-        # === NEW: even if trig=True, don’t proceed without a real gate ===
-        if not (prox_hit or numeric_gate_ok or text_gate_span):
-            return
-        
-        # ---------------- Provenance + sentence suppressors (unchanged) ----------------
-        cue = None
-        cue_sent = None
-
-        if prox_hit:
-            cue = {
-                "label":   prox_hit["rule"]["name"],
-                "pattern": prox_hit["meta"]["cue_term"],
-                "match":   text[prox_hit["meta"]["cue_span"][0]:prox_hit["meta"]["cue_span"][1]],
-                "span":    prox_hit["meta"]["cue_span"],
-            }
-            cue_i = _sent_idx(prox_hit["meta"]["cue_span"])
-            met_i = _sent_idx(prox_hit["meta"]["metric_span"])
-            if cue_i is None or met_i is None:
-                return
-            if not self.allow_cross_sentence:
-                if cue_i != met_i:
-                    return
-                cue_sent = sents[cue_i]
-            else:
-                if not (-self.look_left_sentences <= (met_i-cue_i) <= self.look_right_sentences):
-                    return
-                cue_sent = sents[cue_i]
-
-            ss, se, sent = cue_sent
-            if self.rx_invite.search(sent) or self.rx_disclaimer_inl.search(sent):
-                return
-            blk = _find_block_range(text, self.rx_disclaimer_blk)
-            if blk and (ss >= blk[0]):
-                return
-            st = doc.get("source_type")
-            if self.rx_sup_macro.search(sent) and st not in {"issuer_pr","exchange","regulator"}:
-                if not COMPANY_PRONOUNS.search(sent):
-                    return
-            if self.rx_sup_analyst.search(sent) and st not in {"issuer_pr","exchange","regulator"}:
-                return
-            if re.search(r"\b(will|kommer\s+att)\b", sent, re.I):
-                if not (re.search(r"\b(guidance|outlook|forecast|target|aim|mål)\b", sent, re.I)
-                        or PERCENT_RANGE.search(sent) or CCY_NUMBER.search(sent)):
-                    return
-
-            #cue_term = (prox_hit["meta"].get("cue_term") or "")
-            cue_term = (prox_hit.get("meta", {}).get("cue_term") or "")
-            _dprint("[guidance_v2 cue_term]", f"{cue_term=}")
-
-            # FIXED: keep the 'past' check inside the if block
-            emode = None
-            if self.rx_expect_family.search(cue_term):
-                emode = self._expected_mode(sent, cue_term=cue_term)
-                if emode == "past":
-                    return
-
-            # if self.rx_expect_family.search(cue_term):
-            #     emode = self._expected_mode(sent, cue_term=cue_term)
-            #     if emode == "past":
-            #         return  # suppress only if the *cue itself* is past-looking
-
-        # If we tripped the bare text gate, emit a stub and stop
-        if text_gate_span:
-            period_local = _period_from_near_span(text, text_gate_span) or _period_from_doc(doc) or "UNKNOWN"
-            yield {
-                "metric": "guidance",
-                "metric_kind": "text",
-                "unit": "text",
-                "currency": None,
-                "value_type": "na",
-                "value_low": None,
-                "value_high": None,
-                "basis": "reported",
-                "period": period_local,
-                "direction_hint": None,
-                "_trigger_source": "text_gate",
-            }
-            return
-
-        # If we have a guidance cue (change/unchanged) but no numbers in that cue sentence, emit stub
-        if prox_hit and prox_hit["rule"].get("type") in {"guidance_change","guidance_unchanged","guidance_reaffirm"}:
-            ss, se, sent_txt = cue_sent
-            if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
-                span = prox_hit["meta"]["cue_span"]
-                period_local = _period_from_near_span(text, span) or _period_from_doc(doc) or "UNKNOWN"
-                yield {
-                    "metric": "guidance",
-                    "metric_kind": "text",
-                    "unit": "text",
-                    "currency": None,
-                    "value_type": "na",
-                    "value_low": None,
-                    "value_high": None,
-                    "basis": "reported",
-                    "period": period_local,
-                    "direction_hint": ("flat" if prox_hit["rule"]["type"] in {"guidance_unchanged","guidance_reaffirm"} else None),
-                    "_trigger_source": "fwd_cue",
-                    "_trigger_label":   cue["label"]   if cue else None,
-                    "_trigger_pattern": cue["pattern"] if cue else None,
-                    "_trigger_match":   cue["match"]   if cue else None,
-                    "_trigger_span":    cue["span"]    if cue else None,
-                    "_rule_type":       prox_hit["rule"]["type"],
-                    "_rule_name":       prox_hit["rule"]["name"],
-                }
-                return
-
-        # ---------------- Document context (unchanged) ----------------
-        period = _norm_period(text)
-        basis = _detect_basis(text) or "reported"
-
-        # ---------------- Metric hints & direction (unchanged) ----------------
-        hits = []
-        for k, v in FIN_METRICS.items():
-            k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
-            if k_rx.search(text):
-                hits.append((k, v))
-
-        direction_hint = None
-        if any_present_morph(text, self.dir_up_terms, min_stem=3):
-            direction_hint = "up"
-        elif any_present_morph(text, self.dir_dn_terms, min_stem=3):
-            direction_hint = "down"
-        else:
-            direction_hint = "up" if self.rx_dir_up.search(text) else ("down" if self.rx_dir_dn.search(text) else None)
-
-        if prox_hit and prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"}:
-            direction_hint = "flat"
-
-        prov = trig or cue
-        trigger_source = "strong" if trig else ("fwd_cue" if prox_hit else ("numeric_gate" if numeric_gate_ok else "none"))
-
-        # ---------------- Extraction (modular, behavior preserved) ----------------
-        yielded = False
-
-
-        allow_doc_fallback = bool(trig or prox_hit or numeric_gate_ok)
-
-                # High-level gate/config state
-        _dprint("[guidance_v2 gate]",
-                f"trig={bool(trig)}",
-                f"prox_hit={bool(prox_hit)}",
-                f"numeric_gate_ok={bool(numeric_gate_ok)}",
-                f"period_doc={period!r}",
-                f"allow_doc_fallback={allow_doc_fallback}",
-                f"prox_mode={self.prox_mode}",
-        )
-
-        # Show if YAML/config actually loaded
-        _dprint("[guidance_v2 cfg]",
-                f"fwd_cue_terms={len(self.fwd_cue_terms)}",
-                f"metric_terms={len(self.fin_metric_terms)}",
-                f"prox_rules={len(self.prox_rules)}",
-                f"numeric_rules={len(self.numeric_rules)}",
-                f"allow_cross_sentence={self.allow_cross_sentence}",
-                f"look_left={self.look_left_sentences}",
-                f"look_right={self.look_right_sentences}",
-        )
-
-        # Trigger provenance
-        if trig:
-            _dprint("[guidance_v2 trigger]",
-                    f"label={trig['label']}",
-                    f"span={trig['span']}",
-                    f"match={trig['match']!r}")
-
-        # Proximity provenance
-        if prox_hit:
-            meta = prox_hit["meta"]
-            rule = prox_hit["rule"]
-            _dprint("[guidance_v2 prox]",
-                    f"rule={rule.get('name')}",
-                    f"type={rule.get('type')}",
-                    f"cue_term={meta.get('cue_term')!r}",
-                    f"cue_span={meta.get('cue_span')}",
-                    f"metric_span={meta.get('metric_span')}",
-                    f"token_dist={meta.get('token_dist')}",
-            )
-
-        # Quick regex visibility: how many numeric things we see in the whole text
-        _pcts = list(PERCENT_RANGE.finditer(text))
-        _rngs = list(CCY_RANGE.finditer(text))
-        _nums = list(CCY_NUMBER.finditer(text))
-        _dprint("[guidance_v2 regex_counts]",
-                f"pct={len(_pcts)}",
-                f"ccy_range={len(_rngs)}",
-                f"ccy_num={len(_nums)}")
-
-
-        # 1) Percent (growth/margins): ranges -> single values (skip covered)
-        pct_range_spans = []
-
-        for cand, span in self._extract_pct_range_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            pct_range_spans.append(span)
-            yield cand
-
-        for cand in self._extract_pct_number_candidates(
-            text=text, sents=sents, head=head, basis=basis,
-            period_doc=period, direction_hint=direction_hint,
-            prov=prov, trigger_source=trigger_source, doc=doc,
-            prox_hit=prox_hit, pct_range_spans=pct_range_spans,
-            allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            yield cand
-
-        # 2a) Currency ranges (levels) — track spans to avoid double counting
-        range_spans = []
-        for cand, span in self._extract_ccy_range_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            range_spans.append(span)
-            yield cand
-
-        # 2b) Currency single numbers (levels), skipping anything covered by a range
-        for cand in self._extract_ccy_number_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, range_spans=range_spans, allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            yield cand
-
-        # ----------------------------------------------------------------------------------
-        # 3) TEXT-ONLY “unchanged guidance” stub — run regardless of numeric gate
-        #----------------------------------------------------------------------------------
-        for cand in self._extract_unchanged_stub_candidates(
-            text=text,
-            sents=sents,
-            head=head,
-            period_doc=period,          # <-- use the computed period
-            prov=prov,
-            doc=doc,
-            basis=basis,
-            prox_hit=prox_hit,
-            trig=trig,
-            cue=cue,
-            trigger_source=trigger_source,
-            direction_hint=direction_hint,
-            hits=hits,
-        ):
-            yielded = True
-            yield cand
-
-
-    def _detect_v3(self, doc):
-        """
-        Clean, staged detector that implements the test matrix:
-        1) Build text, sentences, tokens
-        2) Find a real *gate*: proximity OR numeric OR bare-text ("guidance + period")
-        3) Validate cue sentence & suppress (invite/disclaimer/analyst/macro + 'expected' past)
-        4) Resolve context (period/basis/direction)
-        5) Extract: % ranges → % singles → CCY ranges → CCY singles
-        6) Stubs: (a) bare-text gate stub, (b) unchanged/reaffirm/initiate, (c) tight fallback
-
-        Notes
-        -----
-        - Even with a strong trigger, we require a real gate (prox|numeric|text) to proceed.
-        - 'expected' suppression is applied only when the *cue* itself is from the expect-family
-        and the sentence is past-looking (rx_expected_past), so present/future “expect” remains.
-        """
-        import re
-
-        # ---------- 1) Build text, tokenize once ----------
-        text = f"{doc.get('title','')}\n{doc.get('body','')}"
-        head = f"{doc.get('title','')} {doc.get('body','')[:400]}"
-        
-        # ---------- Document-level exclusions (early exit) ----------
-        text_lower = text.lower()
-        if self._should_exclude(text_lower):
-            return
-        
-        sents = list(_sentences_with_spans(text))
-        toks_spans = [(m.group(0), m.span()) for m in _TOKEN_RX.finditer(norm(text))]
-        toks = [t for t, _ in toks_spans]
-
-        def _sent_idx(span):
-            for k, (ss, se, _) in enumerate(sents):
-                if _span_in_sentence(span, (ss, se)):
-                    return k
-            return None
-
-        PERIOD_TOKENS = {"fy", "full-year", "h1", "h2", "q1", "q2", "q3", "q4"}
-
-        def _has_number_near(i, window=8):
-            lo, hi = max(0, i - window), min(len(toks), i + window + 1)
-            seg = " ".join(toks[lo:hi])
-            return bool(PERCENT_RANGE.search(seg) or CCY_NUMBER.search(seg))
-
-        def _has_period_near(i, window=8):
-            lo, hi = max(0, i - window), min(len(toks), i + window + 1)
-            for t in toks[lo:hi]:
-                if t in PERIOD_TOKENS:
-                    return True
-                if len(t) == 4 and t.isdigit() and t.startswith(("20", "19")):
-                    return True
-            return False
-
-        # ---------- 2) Strong trigger (kept) ----------
-        trig = self._find_trigger(text)
-        if trig:
-            ss, se = trig["span"]
-            ctx_s = max(0, ss - 60)
-            ctx_e = min(len(text), se + 60)
-            if NEGATION_RX.search(text[ctx_s:ctx_e]):
-                trig = None
-
-        # ---------- 3) Proximity gate (verbs+markers OR unchanged) ----------
-        prox_hit = None   # {"rule": r, "meta": meta}
-        best_d = 10**9
-        for r in self.prox_rules:
-            ok, meta = (False, None)
-            if r.get("verbs"):
-                ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["verbs"], set_b=r["guidance_markers"],
-                    window=r["window_tokens"], min_stem=3,
-                    same_sentence=r.get("same_sentence", True)
-                )
-            elif r.get("unchanged_tokens"):
-                ok, meta = proximity_cooccurs_morph_spans(
-                    text, set_a=r["guidance_markers"], set_b=r["unchanged_tokens"],
-                    window=r["window_tokens"], min_stem=3,
-                    same_sentence=r.get("same_sentence", True)
-                )
-            if not ok:
-                continue
-
-            if r.get("require_period_token"):
-                m0, _ = meta["metric_span"]
-                j = next((i for i, (_, sp) in enumerate(toks_spans) if sp[0] <= m0 < sp[1]), None)
-                if j is None or not _has_period_near(j, window=r["window_tokens"]):
-                    continue
-
-            if meta["token_dist"] < best_d:
-                prox_hit = {"rule": r, "meta": meta}
-                best_d = meta["token_dist"]
-
-        char_ok = False
-        if prox_hit:
-            cs, ce = prox_hit["meta"]["cue_span"]; ms, me = prox_hit["meta"]["metric_span"]
-            cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
-            char_ok = abs(cue_c - met_c) <= self.prox_chars
-
-        # ---------- 4) Numeric gate (statement-only: marker + nearby number) ----------
-        numeric_gate_ok = False
-        if not trig and not prox_hit and self.numeric_rules:
-            for r in self.numeric_rules:
-                markers = r.get("guidance_markers") or r.get("metrics") or []
-                win = r.get("window_tokens", self.prox_tokens)
-                req_num = bool(r.get("require_number", True))
-                for i, (tok, _) in enumerate(toks_spans):
-                    if any(tok.startswith(m) for m in markers):
-                        if (not req_num) or _has_number_near(i, window=win):
-                            numeric_gate_ok = True
-                            break
-                if numeric_gate_ok:
-                    break
-
-
-        # ---------- 5a) Bare text gate: "guidance" + nearby period token ----------
-        text_gate_span = None
-        ##if not trig and not prox_hit and not numeric_gate_ok:
-        for i, (tok, sp) in enumerate(toks_spans):
-            if tok.startswith("guidance"):
-                has_period = _has_period_near(i, window=8)
-                if not has_period:
-                    # raw-text year/period fallback (handles "2025." etc)
-                    has_period = _period_from_near_span(text, sp) is not None
-                if has_period:
-                    text_gate_span = sp
-                    break
-
-        # ---------- 5b) Marker-only 'guidance interval/range' gate ----------
-        text_marker_span = None
-        if getattr(self, "text_stub_rules", None):
-            for r in self.text_stub_rules:
-                m = r["rx"].search(text)
-                if not m:
-                    continue
-                span = m.span()
-                # Require a nearby period using raw coordinates (avoid norm(text) offsets)
-                if r.get("require_period_token") and not _period_from_near_span(text, span):
-                    continue
-                text_marker_span = span
-                break
-
-        if os.getenv("GUIDANCE_DEBUG") and text_marker_span:
-            s, e = text_marker_span
-            print("[stub] marker hit:", repr(text[s:e]))
-        
-        text_gate_ok = bool(text_gate_span or text_marker_span)
-        if os.getenv("GUIDANCE_DEBUG"):
-            print(f"[gate] text_gate_span={text_gate_span} text_marker_span={text_marker_span}")
-        
-        # ---------- 6) Legacy cue↔metric fallback ----------
-        if not trig and not prox_hit and not numeric_gate_ok and self.fwd_cue_terms and self.fin_metric_terms:
-            ok_legacy, meta_legacy = proximity_cooccurs_morph_spans(
-                text, self.fwd_cue_terms, self.fin_metric_terms,
-                window=self.prox_tokens, min_stem=3
-            )
-            if ok_legacy and meta_legacy:
-                prox_hit = {"rule": {"name": "fwd_cue_near_metric", "type": "guidance_change", "lang": "any"}, "meta": meta_legacy}
-                cs, ce = meta_legacy["cue_span"]; ms, me = meta_legacy["metric_span"]
-                cue_c = (cs + ce) // 2; met_c = (ms + me) // 2
-                char_ok = abs(cue_c - met_c) <= self.prox_chars
-
-        # ---------- 7) Gate decision (require a *real* gate) ----------
-        if not trig:
-            mode = self.prox_mode
-            prox_ok = (prox_hit is not None) if mode == "token" else \
-                    (char_ok)              if mode == "char"  else \
-                    (prox_hit and char_ok) if mode == "both"  else \
-                    (prox_hit or char_ok)
-            if not (prox_ok or numeric_gate_ok or text_gate_ok):
-                return
-            
-        # Even if a strong trigger exists, still require a real gate (defensive)
-        if not (prox_hit or numeric_gate_ok or text_gate_ok):
-            return
-        
-        if os.getenv("GUIDANCE_DEBUG"):
-            print(f"[gate] trig={bool(trig)} prox={bool(prox_hit)} numeric={numeric_gate_ok} text={text_gate_ok}")
-
-        # ---------- 8) Cue provenance + sentence-level suppressors ----------
-        cue = None
-        cue_sent = None
-        if prox_hit:
-            cue = {
-                "label":   prox_hit["rule"]["name"],
-                "pattern": prox_hit["meta"]["cue_term"],
-                "match":   text[prox_hit["meta"]["cue_span"][0]:prox_hit["meta"]["cue_span"][1]],
-                "span":    prox_hit["meta"]["cue_span"],
-            }
-            cue_i = _sent_idx(prox_hit["meta"]["cue_span"])
-            met_i = _sent_idx(prox_hit["meta"]["metric_span"])
-            if cue_i is None or met_i is None:
-                return
-            if not self.allow_cross_sentence:
-                if cue_i != met_i:
-                     return
-                cue_sent = sents[cue_i]
-            else:
-                if not (-self.look_left_sentences <= (met_i - cue_i) <= self.look_right_sentences):
-                    return
-                cue_sent = sents[cue_i]
-
-            ss, se, sent = cue_sent
-            
-            # Inline/block suppressors
-            if self.rx_invite.search(sent) or self.rx_disclaimer_inl.search(sent):
-                return
-            blk = _find_block_range(text, self.rx_disclaimer_blk)
-            if blk and (ss >= blk[0]):
-                return
-
-            st = doc.get("source_type")
-            if self.rx_sup_macro.search(sent) and st not in {"issuer_pr", "exchange", "regulator"}:
-                if not COMPANY_PRONOUNS.search(sent):
-                    return
-            if self.rx_sup_analyst.search(sent) and st not in {"issuer_pr", "exchange", "regulator"}:
-                return
-
-            # Light friction for bare future auxiliary without metrics/keywords
-            if re.search(r"\b(will|kommer\s+att)\b", sent, re.I):
-                if not (re.search(r"\b(guidance|outlook|forecast|target|aim|mål)\b", sent, re.I)
-                        or PERCENT_RANGE.search(sent) or CCY_NUMBER.search(sent)):
-                    return
-
-        # ---------- 10) Document context ----------
-        period_doc = _norm_period(text)
-        basis = _detect_basis(text) or "reported"
-
-        # Metric hints (for text fallback) + direction
-        hits = []
-        for k, v in FIN_METRICS.items():
-            k_rx = re.compile(r"\b" + re.escape(k).replace(r"\ ", r"[\s-]+") + r"\b", re.I)
-            if k_rx.search(text):
-                hits.append((k, v))
-
-        if any_present_morph(text, self.dir_up_terms, min_stem=3):
-            direction_hint = "up"
-        elif any_present_morph(text, self.dir_dn_terms, min_stem=3):
-            direction_hint = "down"
-        else:
-            direction_hint = "up" if self.rx_dir_up.search(text) else ("down" if self.rx_dir_dn.search(text) else None)
-
-        if prox_hit and prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"}:
-            direction_hint = "flat"
-
-        prov = trig or (cue if prox_hit else None)
-        trigger_source = (
-            "strong" if trig else
-            ("fwd_cue" if prox_hit else
-            ("numeric_gate" if numeric_gate_ok else
-            ("text_gate" if text_gate_ok else "none")))
-        )
-        allow_doc_fallback = bool(trig or prox_hit or numeric_gate_ok or text_gate_ok)
-
-        # ---------- 11) Extraction (delegated to existing helpers) ----------
-        yielded = False
-
-        pct_range_spans = []
-        for cand, span in self._extract_pct_range_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period_doc,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            pct_range_spans.append(span)
-            yield cand
-
-        for cand in self._extract_pct_number_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period_doc,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, pct_range_spans=pct_range_spans,
-            allow_doc_fallback=allow_doc_fallback
-        ):
-            yielded = True
-            yield cand
-
-        range_spans = []
-        for cand, span in self._extract_ccy_range_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period_doc,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, allow_doc_fallback=allow_doc_fallback
-        ):
-
-            yielded = True
-            range_spans.append(span)
-            yield cand
-
-        for cand in self._extract_ccy_number_candidates(
-            text=text, sents=sents, head=head, basis=basis, period_doc=period_doc,
-            direction_hint=direction_hint, prov=prov, trigger_source=trigger_source,
-            doc=doc, prox_hit=prox_hit, range_spans=range_spans,
-            allow_doc_fallback=allow_doc_fallback
-        ):
-
-            yielded = True
-            yield cand
-
-        # ---------- 12) Text-only unchanged/initiate stubs & tight fallback ----------
-        for cand in self._extract_unchanged_stub_candidates(
-            text=text, sents=sents, head=head, period_doc=period_doc,
-            prov=prov, doc=doc, basis=basis, prox_hit=prox_hit, trig=trig, cue=cue,
-            trigger_source=trigger_source, direction_hint=direction_hint, hits=hits,
-        ):
-            yield cand
-            return  # only one stub by design
-        
-        def _period_from_same_sentence_span(span):
-            si = _sent_idx(span)
-            if si is None:
-                return None
-            ss, se, _ = sents[si]
-            # search for period only inside the sentence bounds
-            return (_period_from_near_span(text, (ss, se))
-                    or _norm_period(text[ss:se]))  # local norm as a last resort
-
-        # helper: should suppress a *text stub* in this sentence?
-        def _suppress_text_stub(sent_txt, source_type):
-            # negations like: "no guidance", "not provide guidance", "does not intend to provide guidance"
-            RX_NO_GUIDANCE = re.compile(
-                r'(?:\bno\s+guidance\b)'
-                r'|(?:\b(?:does|do|will)\s+not\s+(?:provide|issue|give)\s+guidance\b)'
-                r'|(?:does\s+not\s+intend\s+to\s+provide\s+guidance)',
-                re.I
-            )
-            if self.rx_invite.search(sent_txt) or self.rx_disclaimer_inl.search(sent_txt):
-                return True
-            if RX_NO_GUIDANCE.search(sent_txt):
-                return True
-            # analyst/wire style suppression
-            if self.rx_sup_analyst.search(sent_txt) and source_type not in {"issuer_pr","exchange","regulator"}:
-                return True
-            # macro suppression unless issuer/exchange/regulator or with company pronoun
-            if self.rx_sup_macro.search(sent_txt) and source_type not in {"issuer_pr","exchange","regulator"}:
-                if not COMPANY_PRONOUNS.search(sent_txt):
-                    return True
-            return False
-
-        # --- A) Stub from text_gate (marker or bare "guidance")
-        if text_gate_ok:
-            span = text_marker_span or text_gate_span
-            si = _sent_idx(span)
-            sent_txt = sents[si][2] if si is not None else ""
-            st = doc.get("source_type")
-
-            # sentence-level suppressors for stubs
-            if _suppress_text_stub(sent_txt, st):
-                if os.getenv("GUIDANCE_DEBUG"): print("[stub] skip:suppressor")
-                return
-
-            # NOTE: use *same-sentence* period to avoid latching to the previous sentence
-            period_local = (_period_from_same_sentence_span(span)
-                            or _period_from_doc(doc)
-                            or "UNKNOWN")
-
-            yield {
-                "metric": "guidance",
-                "metric_kind": "text",
-                "unit": "text",
-                "currency": None,
-                "value_type": "na",
-                "value_low": None,
-                "value_high": None,
-                "basis": "reported",
-                "period": period_local,
-                "direction_hint": None,
-                "_trigger_source": "text_gate",
-            }
-            return
-        
-        # --- B) Stub from prox-but-no-numbers-in-cue-sentence
-        if prox_hit and prox_hit["rule"].get("type") in {"guidance_change","guidance_unchanged","guidance_reaffirm"}:
-            ss, se, sent_txt = cue_sent
-            if not (PERCENT_RANGE.search(sent_txt) or CCY_NUMBER.search(sent_txt)):
-                st = doc.get("source_type")
-                if _suppress_text_stub(sent_txt, st):
-                    if os.getenv("GUIDANCE_DEBUG"): print("[stub] skip:suppressor-prox")
-                    # do NOT emit stub; keep going (there might be valid numeric elsewhere)
-                else:
-                    # use *cue sentence* only for the period
-                    period_local = (_period_from_near_span(text, (ss, se))
-                                    or _norm_period(text[ss:se])
-                                    or _period_from_doc(doc)
-                                    or "UNKNOWN")
-                    yield {
-                        "metric": "guidance",
-                        "metric_kind": "text",
-                        "unit": "text",
-                        "currency": None,
-                        "value_type": "na",
-                        "value_low": None,
-                        "value_high": None,
-                        "basis": "reported",
-                        "period": period_local,
-                        "direction_hint": ("flat" if prox_hit["rule"]["type"] in {"guidance_unchanged","guidance_reaffirm"} else None),
-                        "_trigger_source": "fwd_cue",
-                        "_trigger_label":   cue["label"]   if cue else None,
-                        "_trigger_pattern": cue["pattern"] if cue else None,
-                        "_trigger_match":   cue["match"]   if cue else None,
-                        "_trigger_span":    cue["span"]    if cue else None,
-                        "_rule_type":       prox_hit["rule"]["type"],
-                        "_rule_name":       prox_hit["rule"]["name"],
-                    }
-                    return
-
-
-        # # IF NOTHING then emit a text-only stub from either text gate (with suppressors)
-        # if not yielded and (text_gate_span or text_marker_span):
-        #     span = text_marker_span or text_gate_span
-        #     si = _sent_idx(span)
-        #     sent_txt = sents[si][2] if si is not None else ""
-
-        #     # sentence-level suppressors (same logic you apply for prox-hit)
-        #     if self.rx_invite.search(sent_txt) or self.rx_disclaimer_inl.search(sent_txt):
-        #         return
-        #     blk = _find_block_range(text, self.rx_disclaimer_blk)
-        #     if blk and si is not None and sents[si][0] >= blk[0]:
-        #         return
-
-        #     st = doc.get("source_type")
-        #     if self.rx_sup_macro.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
-        #         if not COMPANY_PRONOUNS.search(sent_txt):
-        #             return
-        #     if self.rx_sup_analyst.search(sent_txt) and st not in {"issuer_pr", "exchange", "regulator"}:
-        #         return
-
-        #     period_local = (
-        #         _period_from_near_span(text, span)
-        #         or _period_from_doc(doc)
-        #         or _norm_period(text)   # lets "… for 2025" become FY2025
-        #         or "UNKNOWN"
-        #     )
-        #     yield {
-        #         "metric": "guidance",
-        #         "metric_kind": "text",
-        #         "unit": "text",
-        #         "currency": None,
-        #         "value_type": "na",
-        #         "value_low": None,
-        #         "value_high": None,
-        #         "basis": "reported",
-        #         "period": period_local,
-        #         "direction_hint": None,
-        #         "_trigger_source": "text_gate",
-        #     }
+            # helper: period from same sentence as a span
         #     return
 
             # helper: period from same sentence as a span
@@ -2228,6 +1586,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             v, k = best
             return v, k, best_d
 
@@ -2418,6 +1778,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             v, k = best
             return v, k, best_d
 
@@ -2576,6 +1938,12 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
+            if best is None:
+                return None, None, None
+            if best is None:
+                return None, None, None
             (v, k) = best
             return v, k, best_d
 
@@ -2646,18 +2014,26 @@ class GuidanceChangePlugin(EventPlugin):
                     _dprint("[rng] skip:period_unknown_no_fallback")
                     continue
 
-            ccy   = m.group("ccy").upper()
-            scale = (m.groupdict() or {}).get("scale")
-            a = _apply_scale(_to_float(m.group("a")), scale)
-            b = _apply_scale(_to_float(m.group("b")), scale)
-            low, high = (min(a, b), max(a, b))
+            # ccy   = m.group("ccy").upper()
+            # scale = (m.groupdict() or {}).get("scale")
+            # a = _apply_scale(_to_float(m.group("a")), scale)
+            # b = _apply_scale(_to_float(m.group("b")), scale)
+            # low, high = (min(a, b), max(a, b))
+
+            ccy = m.group("ccy").upper()
+            scale = (m.group("scale") or "").strip()
+            # your comma→dot helper
+            lo = _to_float(m.group("a"))   # 2.1
+            hi = _to_float(m.group("b"))   # 2.3
+            lo_m = _apply_scale(lo, scale) # 2100.0 if mdr
+            hi_m = _apply_scale(hi, scale) # 2300.0 if mdr
 
             metric, kind, unit = best_v
-            _dprint("[rng] yield", f"metric={metric}", f"low={low}", f"high={high}",
+            _dprint("[rng] yield", f"metric={metric}", f"low={lo_m}", f"high={hi_m}",
                     f"ccy={ccy}", f"period={period_local}", f"d={best_d}", f"nearest_key={best_k}")
             yield ({
                 "metric": metric, "metric_kind": kind, "unit": "ccy", "currency": ccy,
-                "value_type": "range", "value_low": low, "value_high": high,
+                "value_type": "range", "value_low": lo_m, "value_high": hi_m,
                 "basis": basis, "period": period_local,
                 "direction_hint": direction_hint,
                 "_trigger_source": trigger_source,
@@ -2720,6 +2096,8 @@ class GuidanceChangePlugin(EventPlugin):
                 d = min(abs(n0 - a), abs(n1 - b))
                 if best_d is None or d < best_d:
                     best, best_d = (v, k), d
+            if best is None:
+                return None, None, None
             (v, k) = best
             return v, k, best_d
 
@@ -2840,6 +2218,10 @@ class GuidanceChangePlugin(EventPlugin):
         """
         import re
 
+        # Global guard: disable all text-only stubs when flag is off
+        if not self.cfg.get("enable_text_stubs", True):
+            return
+
         # ---------- Helper to derive a period from a span's sentence ----------
         def _period_from_span(span):
             if not span:
@@ -2923,7 +2305,7 @@ class GuidanceChangePlugin(EventPlugin):
                 if not (sent_txt and COMPANY_PRONOUNS.search(sent_txt)):
                     return
             
-            cue_period = _clean_period(_norm_period(cue_sentence))
+            cue_period = _clean_period(_norm_period(cue_sentence or ""))
             
             # Prefer local (cue/trig/cue) sentence period; fallback to doc-level
             # 3) Period selection: local -> cue sentence -> headline -> doc
@@ -2939,7 +2321,7 @@ class GuidanceChangePlugin(EventPlugin):
                 cs, ce = (prox_hit.get("meta") or {}).get("cue_span") or (None, None)
                 print("[unchanged-stub] prox=True",
                     "cue_term=", (prox_hit.get("meta") or {}).get("cue_term"),
-                    "cue_txt=", (text[cs:ce] if cs is not None else None)),
+                    "cue_txt=", (text[cs:ce] if cs is not None else None))
             else:
                 print("[unchanged-stub] prox=False")
             
@@ -2982,10 +2364,10 @@ class GuidanceChangePlugin(EventPlugin):
                     "flat" if prox_hit["rule"]["type"] in {"guidance_unchanged", "guidance_reaffirm"} else None
                 ),
                 "_trigger_source": trigger_source or ("fwd_cue" if prox_hit else "none"),
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"],
                 "_rule_name":       prox_hit["rule"]["name"],
             }
@@ -3034,10 +2416,10 @@ class GuidanceChangePlugin(EventPlugin):
                 "period": period_local,  # <-- critical change
                 "direction_hint": direction_hint,
                 "_trigger_source": trigger_source or ("strong" if trig else ("fwd_cue" if cue else "none")),
-                "_trigger_label":   (trig or cue)["label"]   if (trig or cue) else None,
-                "_trigger_pattern": (trig or cue)["pattern"] if (trig or cue) else None,
-                "_trigger_match":   (trig or cue)["match"]   if (trig or cue) else None,
-                "_trigger_span":    (trig or cue)["span"]    if (trig or cue) else None,
+                "_trigger_label":   ((trig or cue) or {}).get("label"),
+                "_trigger_pattern": ((trig or cue) or {}).get("pattern"),
+                "_trigger_match":   ((trig or cue) or {}).get("match"),
+                "_trigger_span":    ((trig or cue) or {}).get("span"),
                 "_rule_type":       prox_hit["rule"]["type"] if prox_hit else None,
                 "_rule_name":       prox_hit["rule"]["name"] if prox_hit else None,
             }
@@ -3145,32 +2527,46 @@ class GuidanceChangePlugin(EventPlugin):
         return (cand["company_id"], cand["period"], cand["metric"], cand["basis"])
 
     def compare(self, cand: dict, prior: dict | None) -> dict:
-        out = {
-            "new_mid": None, "new_width": None,
-            "delta_pp": None, "delta_pct": None, "range_tightened": None,
-            "old_low": None, "old_high": None, "old_mid": None, "old_width": None,
+        out: Dict[str, Any] = {
+            "new_mid": None,
+            "new_width": None,
+            "delta_pp": None,
+            "delta_pct": None,
+            "range_tightened": None,
+            "old_low": None,
+            "old_high": None,
+            "old_mid": None,
+            "old_width": None,
             "change_label": None,
         }
 
+        # Text-only guidance has no numeric comparison context.
         if cand.get("unit") == "text":
             return out
 
-        new_low, new_high = cand["value_low"], cand["value_high"]
-        new_mid = _mid(new_low, new_high)
-        new_width = new_high - new_low
+        new_low = cand.get("value_low")
+        new_high = cand.get("value_high")
+        if not (_is_num(new_low) and _is_num(new_high)):
+            return out
+        # Explicitly cast after numeric check to satisfy static analyzers
+        new_low_f = float(new_low)  # type: ignore[arg-type]
+        new_high_f = float(new_high)  # type: ignore[arg-type]
+        new_mid = _mid(new_low_f, new_high_f)
+        new_width = new_high_f - new_low_f
         out["new_mid"], out["new_width"] = new_mid, new_width
 
-        if not prior:
-            return out
-        if prior.get("unit") != cand.get("unit"):
+        # No prior or mismatched unit → treat as initiation, no deltas.
+        if not prior or prior.get("unit") != cand.get("unit"):
             return out
 
-        old_low, old_high = prior.get("value_low"), prior.get("value_high")
+        old_low = prior.get("value_low")
+        old_high = prior.get("value_high")
         if not (_is_num(old_low) and _is_num(old_high)):
             return out
-
-        old_mid = _mid(old_low, old_high)
-        old_width = old_high - old_low
+        old_low_f = float(old_low)  # type: ignore[arg-type]
+        old_high_f = float(old_high)  # type: ignore[arg-type]
+        old_mid = _mid(old_low_f, old_high_f)
+        old_width = old_high_f - old_low_f
         out.update({
             "old_low": old_low, "old_high": old_high,
             "old_mid": old_mid, "old_width": old_width,
@@ -3179,7 +2575,7 @@ class GuidanceChangePlugin(EventPlugin):
 
         if cand["unit"] == "pct":
             out["delta_pp"] = new_mid - old_mid
-        else:  # ccy
+        else:  # currency level
             out["delta_pct"] = math.inf if old_mid == 0 else (new_mid - old_mid) / abs(old_mid) * 100.0
 
         return out
@@ -3338,32 +2734,9 @@ class GuidanceChangePlugin(EventPlugin):
             "details_json": json.dumps(details),
         }
         # --- New: audit row with full cleaned text for external validation file ---
-        audit_row = {
-            "event_id": event_id,
-            "event_key": "guidance_change",
-            "company_id": cand["company_id"],
-            "doc_id": doc.get("doc_id"),
-            "cluster_id": doc.get("cluster_id"),
-            "published_utc": doc.get("published_utc"),
-            "source_type": doc.get("source_type"),
-            "source_url": doc.get("source_url"),
-            "metric": cand.get("metric"),
-            "metric_kind": cand.get("metric_kind"),
-            "basis": cand.get("basis"),
-            "unit": cand.get("unit"),
-            "period": cand.get("period"),
-            "direction_hint": cand.get("direction_hint"),
-            "sig_score": float(score),
-            "is_significant": bool(is_sig),
-            "trigger_source": cand.get("_trigger_source"),
-            "trigger_label": cand.get("_trigger_label"),
-            "trigger_match": cand.get("_trigger_match"),
-            # the bits you want to eyeball:
-            "title_clean": doc["title_clean"],
-            "body_clean": doc["body_clean"],
-        }
-
-        return versions_row, event_row,audit_row
+        # Audit row removed from return to satisfy EventPlugin protocol.
+        # (If needed elsewhere, expose via separate method.)
+        return versions_row, event_row
 
 
 plugin = GuidanceChangePlugin()

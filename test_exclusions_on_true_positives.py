@@ -5,7 +5,7 @@ Loads all true_positive feedback and ensures they still generate events.
 """
 import pandas as pd
 from event_feed_app.alerts.runner import fetch_data
-from event_feed_app.events.guidance_change.plugin2 import GuidanceChangePlugin
+from event_feed_app.events.guidance_change.plugin import GuidanceChangePlugin
 import yaml
 from pathlib import Path
 

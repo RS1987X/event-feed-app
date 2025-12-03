@@ -3,7 +3,7 @@
 Test that exclusion rules work correctly for known false positives.
 """
 from event_feed_app.alerts.runner import fetch_data
-from event_feed_app.events.guidance_change.plugin2 import GuidanceChangePlugin
+from event_feed_app.events.guidance_change.plugin import GuidanceChangePlugin
 import pandas as pd
 import yaml
 

@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, '/home/ichard/projects/event-feed-app/src')
 
 from event_feed_app.alerts.runner import fetch_data
-from event_feed_app.events.guidance_change.plugin2 import GuidanceChangePlugin
+from event_feed_app.events.guidance_change.plugin import GuidanceChangePlugin
 from event_feed_app.alerts.detector import GuidanceAlertDetector
 import yaml
 from pathlib import Path

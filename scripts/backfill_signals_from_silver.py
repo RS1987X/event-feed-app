@@ -119,11 +119,17 @@ def backfill_date_range(
     logger.info(f"{'='*80}\n")
     
     # Load configuration
-    config = load_config()
+    yaml_config = load_config()
     
-    # Add flag to write signals
-    config['write_signals'] = write_signals and not dry_run
-    config['alert_all_guidance'] = False  # Use normal significance threshold
+    # Extract guidance_change event config from YAML
+    guidance_event = next((e for e in yaml_config.get('events', []) if e.get('key') == 'guidance_change'), {})
+    
+    # Wrap config properly for detector
+    config = {
+        'write_signals': write_signals and not dry_run,
+        'alert_all_guidance': False,  # Use normal significance threshold
+        'guidance_plugin_config': guidance_event  # Pass guidance event config to plugin
+    }
     
     # Initialize detector with signal writing enabled
     signal_store = SignalStore() if write_signals else None

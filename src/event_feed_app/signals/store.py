@@ -60,7 +60,7 @@ class SignalStore:
         
         Args:
             events: List of event dicts matching GuidanceEventSchema
-            partition_date: Date for partitioning (defaults to today)
+            partition_date: Date for partitioning (uses press_release_date from first event if not provided)
         
         Returns:
             GCS path where data was written
@@ -69,7 +69,16 @@ class SignalStore:
             logger.warning("No events to write")
             return ""
         
-        partition_date = partition_date or date.today()
+        # Use press_release_date from first event for partitioning if not specified
+        if partition_date is None:
+            first_pr_date = events[0].get('press_release_date')
+            if isinstance(first_pr_date, str):
+                partition_date = datetime.strptime(first_pr_date, "%Y-%m-%d").date()
+            elif isinstance(first_pr_date, date):
+                partition_date = first_pr_date
+            else:
+                partition_date = date.today()
+        
         partition_str = partition_date.strftime("%Y-%m-%d")
         
         # Convert to DataFrame and validate schema
@@ -86,9 +95,20 @@ class SignalStore:
         # Convert to PyArrow table with schema enforcement
         table = pa.Table.from_pandas(df, schema=self.event_schema)
         
-        # Write to GCS
+        # Write to GCS with PR timestamp-based filename for idempotency
+        # Extract press_release_date from first event (all events are from same PR)
         path = f"{self.base_path}/events/date={partition_str}"
-        blob_name = f"{path}/events_{datetime.utcnow().strftime('%H%M%S')}.parquet"
+        pr_date = events[0].get('press_release_date')
+        if isinstance(pr_date, str):
+            pr_datetime = datetime.strptime(pr_date, "%Y-%m-%d")
+        elif isinstance(pr_date, (datetime, date)):
+            pr_datetime = pr_date if isinstance(pr_date, datetime) else datetime.combine(pr_date, datetime.min.time())
+        else:
+            pr_datetime = datetime.utcnow()  # Fallback to current time
+        
+        # Use PR timestamp for filename (ensures idempotency - same PR = same filename)
+        timestamp = pr_datetime.strftime('%Y%m%d_%H%M%S%f')
+        blob_name = f"{path}/events_{timestamp}.parquet"
         
         # Write to local buffer first
         import io
@@ -114,12 +134,21 @@ class SignalStore:
         
         Args:
             alert: Alert dict from detector._build_aggregated_alert()
-            partition_date: Date for partitioning (defaults to today)
+            partition_date: Date for partitioning (uses press_release_date from alert if not provided)
         
         Returns:
             GCS path where data was written
         """
-        partition_date = partition_date or date.today()
+        # Use press_release_date from alert metadata for partitioning if not specified
+        if partition_date is None:
+            pr_date = alert.get('metadata', {}).get('press_release_date')
+            if isinstance(pr_date, str):
+                partition_date = datetime.strptime(pr_date, "%Y-%m-%d").date()
+            elif isinstance(pr_date, date):
+                partition_date = pr_date
+            else:
+                partition_date = date.today()
+        
         partition_str = partition_date.strftime("%Y-%m-%d")
         
         # Convert to schema-compliant dict

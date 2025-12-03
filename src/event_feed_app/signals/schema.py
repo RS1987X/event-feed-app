@@ -224,11 +224,11 @@ class AggregatedAlertSchema:
 # Partition strategies for efficient querying
 PARTITION_SPECS = {
     "events": {
-        "by_date": ["detected_date"],  # Partitioned by date(detected_at)
-        "by_company": ["company_id", "detected_date"],  # For company-specific queries
-        "by_period": ["period", "detected_date"],  # For cross-company period analysis
+        "by_date": ["press_release_date"],  # Partitioned by press_release_date
+        "by_company": ["company_id", "press_release_date"],  # For company-specific queries
+        "by_period": ["period", "press_release_date"],  # For cross-company period analysis
     },
     "aggregated": {
-        "by_date": ["detected_date"],
+        "by_date": ["press_release_date"],
     }
 }

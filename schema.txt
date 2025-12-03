@@ -1,0 +1,37 @@
+┌────────────────────┬──────────────────────────┬─────────┬─────────┬─────────┬─────────┐
+│    column_name     │       column_type        │  null   │   key   │ default │  extra  │
+│      varchar       │         varchar          │ varchar │ varchar │ varchar │ varchar │
+├────────────────────┼──────────────────────────┼─────────┼─────────┼─────────┼─────────┤
+│ event_id           │ VARCHAR                  │ YES     │         │         │         │
+│ press_release_id   │ VARCHAR                  │ YES     │         │         │         │
+│ alert_id           │ VARCHAR                  │ YES     │         │         │         │
+│ company_id         │ VARCHAR                  │ YES     │         │         │         │
+│ company_name       │ VARCHAR                  │ YES     │         │         │         │
+│ detected_at        │ TIMESTAMP WITH TIME ZONE │ YES     │         │         │         │
+│ metric             │ VARCHAR                  │ YES     │         │         │         │
+│ metric_kind        │ VARCHAR                  │ YES     │         │         │         │
+│ period             │ VARCHAR                  │ YES     │         │         │         │
+│ value_low          │ DOUBLE                   │ YES     │         │         │         │
+│ value_high         │ DOUBLE                   │ YES     │         │         │         │
+│ unit               │ VARCHAR                  │ YES     │         │         │         │
+│ currency           │ VARCHAR                  │ YES     │         │         │         │
+│ basis              │ VARCHAR                  │ YES     │         │         │         │
+│ direction_hint     │ VARCHAR                  │ YES     │         │         │         │
+│ prior_value_low    │ DOUBLE                   │ YES     │         │         │         │
+│ prior_value_high   │ DOUBLE                   │ YES     │         │         │         │
+│ prior_mid          │ DOUBLE                   │ YES     │         │         │         │
+│ delta_pp           │ DOUBLE                   │ YES     │         │         │         │
+│ delta_pct          │ DOUBLE                   │ YES     │         │         │         │
+│ range_tightened    │ BOOLEAN                  │ YES     │         │         │         │
+│ change_label       │ VARCHAR                  │ YES     │         │         │         │
+│ confidence         │ DOUBLE                   │ YES     │         │         │         │
+│ rule_type          │ VARCHAR                  │ YES     │         │         │         │
+│ rule_name          │ VARCHAR                  │ YES     │         │         │         │
+│ trigger_source     │ VARCHAR                  │ YES     │         │         │         │
+│ text_snippet       │ VARCHAR                  │ YES     │         │         │         │
+│ press_release_date │ DATE                     │ YES     │         │         │         │
+│ source_url         │ VARCHAR                  │ YES     │         │         │         │
+│ source_type        │ VARCHAR                  │ YES     │         │         │         │
+├────────────────────┴──────────────────────────┴─────────┴─────────┴─────────┴─────────┤
+│ 30 rows                                                                     6 columns │
+└───────────────────────────────────────────────────────────────────────────────────────┘

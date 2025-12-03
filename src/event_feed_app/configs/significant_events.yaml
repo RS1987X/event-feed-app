@@ -7,6 +7,7 @@ defaults:
 events:
   - key: guidance_change
     label: Guidance change for company or competitor
+    enable_text_stubs: false
 
     thresholds:
       withdraw_or_suspend: always
@@ -44,6 +45,21 @@ events:
         terms:
           en: [expect, expects, project, projects, aim, target, targets, anticipate, plan, intend, will, should, "we see", "we believe", "we expect","guiding"]
           sv: [förväntar, "räknar med", siktar, målsätter, planerar, avser, "kommer att", bör, "vi ser", "vi tror"]
+        # Cues that must appear BEFORE the metric (not after) to be valid guidance
+        # This prevents "revenue model in target market" from matching as guidance
+        directional_cues:
+          en: [target, targets, aim]
+          sv: [siktar, målsätter]
+        # Exclude non-guidance uses of forward-cue terms
+        exclusion_phrases:
+          en:
+            - "target market"
+            - "target audience"
+            - "target customer"
+            - "target group"
+            - "key target"
+            - "target application"
+            - "target population"
 
       guidance_proximity_rules:
         - name: en_guidance_change
@@ -83,7 +99,7 @@ events:
         - name: en_guidance_numeric
           type: guidance_stated
           lang: en
-          guidance_markers: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
+          metrics: ["guidance","outlook","forecast","full-year guidance","fy guidance"]
           window_tokens: 8
           same_sentence: true
           require_number: true

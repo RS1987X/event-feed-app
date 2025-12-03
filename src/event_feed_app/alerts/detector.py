@@ -160,7 +160,7 @@ class GuidanceAlertDetector:
                        f"body_len={len(normalized_doc.get('body', ''))}, "
                        f"company_name={normalized_doc.get('company_name', 'MISSING')}")
         
-        # NOTE: Gate is commented out in plugin2.py (intentionally too restrictive for alerts)
+        # NOTE: Gate is commented out in plugin.py (intentionally too restrictive for alerts)
         # We skip gating and rely on detect() method's internal logic for precision
         
         # Detect candidates
@@ -389,10 +389,20 @@ class GuidanceAlertDetector:
                             text_snippet = sent.strip()[:200]  # Cap at 200 chars
                             break
             
+            # Determine item type: financial metric vs generic guidance
+            cand_metric = (candidate.get("metric") or "").lower()
+            value_low = candidate.get("value_low")
+            value_high = candidate.get("value_high")
+            has_numeric = value_low is not None and value_high is not None
+            is_generic_guidance = cand_metric in {"", "guidance", "unknown"} and not has_numeric
+
             detailed_item = {
-                "metric": candidate.get("metric") or "unknown",
+                "item_type": "guidance_generic" if is_generic_guidance else "financial_metric",
+                "metric": candidate.get("metric") or ("guidance" if is_generic_guidance else "unknown"),
                 "direction": comparison.get("direction") or "unknown",
                 "period": candidate.get("period") or "UNKNOWN",
+                # Optional segment/region scope if plugin provided it
+                "segment": candidate.get("segment") or candidate.get("business_unit") or candidate.get("region"),
                 "value_str": self._format_value_change(candidate, comparison),
                 "confidence": item.get("score", 0.0),
                 "text_snippet": text_snippet,
