@@ -82,10 +82,10 @@ def list_silver_batches(
     
     blobs = bucket.list_blobs(prefix=prefix)
     
-    # Filter to actual batch files (not directories, not consolidated)
+    # Filter to actual parquet files (not consolidated, not directories)
     batch_files = []
     for blob in blobs:
-        if blob.name.endswith(".parquet") and "batch_" in blob.name:
+        if blob.name.endswith(".parquet") and "consolidated" not in blob.name:
             # Check if this file is for our target date
             if f"release_date={date}/" in blob.name:
                 batch_files.append(blob.name)
@@ -256,7 +256,7 @@ def delete_silver_batches(
             logger.error(f"Failed to delete {file_path}: {e}")
             # Continue with other files
     
-    logger.info(f"Deleted {len(batch_files)} bronze batch files")
+    logger.info(f"Deleted {len(batch_files)} silver batch files")
 
 
 def consolidate_source_date(
@@ -291,7 +291,7 @@ def consolidate_source_date(
         stats["batch_count"] = len(batch_files)
         
         if not batch_files:
-            logger.warning(f"No bronze batches found for {source}/{date}")
+            logger.info(f"No silver batches to consolidate for {source}/{date}")
             stats["success"] = True  # Not an error, just no data
             return stats
         
@@ -348,7 +348,7 @@ def consolidate_all_sources(
     dry_run: bool = False
 ) -> List[dict]:
     """
-    Consolidate bronze batches for all sources (or specified sources).
+    Consolidate silver batches for all sources (or specified sources).
     
     Args:
         date: Date to consolidate (YYYY-MM-DD)
@@ -363,20 +363,31 @@ def consolidate_all_sources(
     # Discover sources if not specified
     if sources is None:
         bucket = client.bucket(GCS_BUCKET)
-        prefix = f"{BRONZE_BASE}/"
         
-        # List all source= directories
+        # Use delimiter to list source= directories efficiently
         sources_set = set()
-        for blob in bucket.list_blobs(prefix=prefix, delimiter="/"):
-            # Look for source= in the path
-            if "/source=" in blob.name:
-                parts = blob.name.split("/source=")
-                if len(parts) > 1:
-                    source = parts[1].split("/")[0]
-                    sources_set.add(source)
+        prefix = f"{SILVER_BASE}/source="
+        
+        # First, get all source directories using delimiter
+        iterator = bucket.list_blobs(prefix=f"{SILVER_BASE}/", delimiter="/")
+        for page in iterator.pages:
+            for prefix_item in page.prefixes:
+                # prefix_item looks like: silver_normalized/table=press_releases/source=gmail/
+                if "/source=" in prefix_item:
+                    parts = prefix_item.split("/source=")
+                    if len(parts) > 1:
+                        source = parts[1].rstrip("/")
+                        # Now check if this source has data for our target date
+                        date_prefix = f"{SILVER_BASE}/source={source}/release_date={date}/"
+                        blobs_for_date = list(bucket.list_blobs(prefix=date_prefix, max_results=1))
+                        if blobs_for_date:
+                            sources_set.add(source)
         
         sources = sorted(sources_set)
-        logger.info(f"Discovered sources: {sources}")
+        if sources:
+            logger.info(f"Discovered sources: {sources}")
+        else:
+            logger.warning(f"No sources found for date {date}")
     
     # Consolidate each source
     all_stats = []

@@ -29,7 +29,7 @@ Deps:
 """
 
 import os, io, re, json, time, gzip, hashlib, logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, TYPE_CHECKING, cast
 from datetime import datetime, timezone, timedelta
 
 import requests, feedparser
@@ -111,12 +111,13 @@ def _parse_dt_utc(s: Optional[str]) -> Optional[str]:
 def parse_page_meta(html: str) -> Dict[str, Optional[str]]:
     """Returns {'company_name', 'release_ts_utc', 'release_time_text'} if found."""
     soup = BeautifulSoup(html, "html.parser")
-    out = {"company_name": None, "release_ts_utc": None, "release_time_text": None}
+    out: Dict[str, Optional[str]] = {"company_name": None, "release_ts_utc": None, "release_time_text": None}
 
     # 1) JSON-LD (datePublished + publisher/sourceOrganization/author)
     for s in soup.find_all("script", type="application/ld+json"):
         try:
-            data = json.loads(s.string or "")
+            script_text = getattr(s, "string", None) or ""
+            data = json.loads(script_text)
             nodes = data if isinstance(data, list) else [data]
             for n in nodes:
                 if not isinstance(n, dict):
@@ -141,16 +142,18 @@ def parse_page_meta(html: str) -> Dict[str, Optional[str]]:
         'meta[name="date"]',
     ]:
         el = soup.select_one(sel)
-        if el and el.get("content") and not out["release_ts_utc"]:
-            out["release_time_text"] = el["content"]
-            out["release_ts_utc"] = _parse_dt_utc(el["content"])
+        content_val = el.get("content") if el else None
+        if isinstance(content_val, str) and not out["release_ts_utc"]:
+            out["release_time_text"] = content_val
+            out["release_ts_utc"] = _parse_dt_utc(content_val)
 
     # 3) <time datetime="..."> (often present on GNW)
     if not out["release_ts_utc"]:
         t = soup.select_one('time[datetime]')
-        if t and t.get("datetime"):
-            out["release_time_text"] = t["datetime"]
-            out["release_ts_utc"] = _parse_dt_utc(t["datetime"])
+        dt_val = t.get("datetime") if t else None
+        if isinstance(dt_val, str):
+            out["release_time_text"] = dt_val
+            out["release_ts_utc"] = _parse_dt_utc(dt_val)
 
     # 4) GNW-style dateline: "September 29, 2025 08:00 ET | Source: <Company>"
     if not out["release_ts_utc"] or not out["company_name"]:
@@ -220,7 +223,7 @@ def _feed_state_doc():
 
 def load_feed_state() -> Dict:
     doc = _feed_state_doc().get()
-    return doc.to_dict() if doc.exists else {}
+    return doc.to_dict() or {}
 def save_feed_state(*, last_modified: Optional[str] = None, etag: Optional[str] = None):
     patch = {}
     if last_modified is not None: patch["last_modified"] = last_modified
@@ -281,7 +284,7 @@ def http_get(url: str, headers: Dict[str,str]) -> requests.Response:
 def extract_text(html: str, base_url: str) -> str:
     # Try trafilatura first (optional)
     try:
-        import trafilatura
+        import trafilatura  # type: ignore
         txt = trafilatura.extract(html, url=base_url, include_comments=False, include_tables=False)
         if txt and len(txt.strip()) >= HTML_MIN_LEN:
             return txt.strip()
@@ -397,108 +400,113 @@ def process_once() -> int:
         if cd and now_utc >= cd:
             clear_cooldown_utc()
 
-    # conditional GET for the feed
-    state = load_feed_state()
-    headers = polite_headers({})
-    if state.get("last_modified"): headers["If-Modified-Since"] = state["last_modified"]
-    if state.get("etag"):          headers["If-None-Match"]     = state["etag"]
+        # conditional GET for the feed
+        state = load_feed_state()
+        headers = polite_headers({})
+        if state.get("last_modified"): headers["If-Modified-Since"] = state["last_modified"]
+        if state.get("etag"):          headers["If-None-Match"]     = state["etag"]
 
-    r = http_get(FEED_URL, headers)
-    if r.status_code == 304:
-        logging.info("[feed] not modified")
-        return 0
+        r = http_get(FEED_URL, headers)
+        if r.status_code == 304:
+            logging.info("[feed] not modified")
+            return 0
 
-    save_feed_state(last_modified=r.headers.get("Last-Modified"), etag=r.headers.get("ETag"))
+        save_feed_state(last_modified=r.headers.get("Last-Modified"), etag=r.headers.get("ETag"))
 
-    if RESPECT_MAX_AGE:
-        cc = r.headers.get("Cache-Control","")
-        m = re.search(r"max-age=(\d+)", cc)
-        if m:
-            secs = int(m.group(1))
-            if secs >= 30:
-                save_cooldown_max(datetime.now(timezone.utc) + timedelta(seconds=secs))
+        if RESPECT_MAX_AGE:
+            cc = r.headers.get("Cache-Control","")
+            m = re.search(r"max-age=(\d+)", cc)
+            if m:
+                secs = int(m.group(1))
+                if secs >= 30:
+                    save_cooldown_max(datetime.now(timezone.utc) + timedelta(seconds=secs))
 
-    parsed = feedparser.parse(r.content)
-    feed_title = (parsed.feed.get("title") or "rss").strip()
+        parsed = feedparser.parse(r.content)
+        feed_obj = cast(Dict[str, Any], getattr(parsed, "feed", {}))
+        feed_title = (feed_obj.get("title") or "rss").strip()
 
-    written = 0
-    for e in parsed.entries:
-        if written >= MAX_ITEMS_PER_RUN:
-            logging.info("[feed] hit MAX_ITEMS_PER_RUN=%d; stopping.", MAX_ITEMS_PER_RUN)
-            break
+        written = 0
+        total_entries = len(parsed.entries)
+        logging.info("[feed] entries=%d", total_entries)
+        for e in parsed.entries:
+            if written >= MAX_ITEMS_PER_RUN:
+                logging.info("[feed] hit MAX_ITEMS_PER_RUN=%d; stopping.", MAX_ITEMS_PER_RUN)
+                break
 
-        msg_id = _msg_id_for_entry(e)
-        link   = e.get("link","")
-        title  = e.get("title","")
-        #day    = _pub_date_iso(e)
+            msg_id = _msg_id_for_entry(e)
+            link   = str(e.get("link",""))
+            title  = str(e.get("title",""))
+            #day    = _pub_date_iso(e)
 
-        day_rss = _pub_date_iso(e)
-        if bronze_exists(msg_id, day_rss):
-            continue
+            day_rss = _pub_date_iso(e)
+            if bronze_exists(msg_id, day_rss):
+                logging.info("[skip] bronze exists msg_id=%s day=%s", msg_id, day_rss)
+                continue
 
-        try:
-            page = http_get(link, polite_headers({}))
-        except CooldownActive as ce:
-            logging.warning("[gate] cooldown (target site): %s", ce)
-            raise
-        except Exception as ex:
-            logging.warning("[fetch] failed url=%s err=%s", link, ex)
-            continue
+            try:
+                page = http_get(link, polite_headers({}))
+            except CooldownActive as ce:
+                logging.warning("[gate] cooldown (target site): %s", ce)
+                raise
+            except Exception as ex:
+                logging.warning("[fetch] failed url=%s err=%s", link, ex)
+                continue
 
-        html = page.text
-        meta = parse_page_meta(html)  
-        day_final = (
-            datetime.fromisoformat(meta["release_ts_utc"].replace("Z","+00:00")).date().isoformat()
-            if meta.get("release_ts_utc") else day_rss
-        )
-        # pick partition date: prefer page timestamp if present, else RSS date
-        # NEW: if final day differs, ensure we haven’t already written under that partition
-        if day_final != day_rss and bronze_exists(msg_id, day_final):
-            logging.info("[skip] already exists under final partition %s", day_final)
-            continue
+            html = page.text
+            meta = parse_page_meta(html)
+            release_ts = meta.get("release_ts_utc")
+            day_final = (
+                datetime.fromisoformat(release_ts.replace("Z","+00:00")).date().isoformat()
+                if release_ts else day_rss
+            )
+            # pick partition date: prefer page timestamp if present, else RSS date
+            # NEW: if final day differs, ensure we haven’t already written under that partition
+            if day_final != day_rss and bronze_exists(msg_id, day_final):
+                logging.info("[skip] already exists under final partition %s msg_id=%s", day_final, msg_id)
+                continue
 
-        day = day_final
+            day = day_final
         
-        text = extract_text(html, page.url)
-        if not text or len(text) < 200:
-            logging.warning("[extract] short text msgId=%s url=%s", msg_id, page.url)
+            text = extract_text(html, page.url)
+            if not text or len(text) < 200:
+                logging.warning("[extract] short text msgId=%s url=%s", msg_id, page.url)
 
-        entry_json = {
-            "msgId": msg_id,
-            "page_company": meta.get("company_name"),
-            "page_release_time_utc": meta.get("release_ts_utc"),
-            "page_release_time_text": meta.get("release_time_text"),
-            "title": title,
-            "link": link,
-            "published": e.get("published"),
-            "summary": e.get("summary"),
-            "feed_title": feed_title,
-            "feed_url": FEED_URL,
-            "final_url": page.url,
-            "fetched_at": _now_utc_iso(),
-            "headers": {k:v for k,v in page.headers.items() if k.lower() in ("content-type","cache-control","last-modified")}
-        }
-        write_bronze(msg_id=msg_id, day_iso=day, html=html, entry_json=entry_json,
-                     page_url=page.url, page_headers=page.headers)
+            entry_json = {
+                "msgId": msg_id,
+                "page_company": meta.get("company_name"),
+                "page_release_time_utc": meta.get("release_ts_utc"),
+                "page_release_time_text": meta.get("release_time_text"),
+                "title": title,
+                "link": link,
+                "published": e.get("published"),
+                "summary": e.get("summary"),
+                "feed_title": feed_title,
+                "feed_url": FEED_URL,
+                "final_url": page.url,
+                "fetched_at": _now_utc_iso(),
+                "headers": {k:v for k,v in page.headers.items() if k.lower() in ("content-type","cache-control","last-modified")}
+            }
+            write_bronze(msg_id=msg_id, day_iso=day, html=html, entry_json=entry_json,
+                         page_url=page.url, page_headers=dict(page.headers))
 
-        row = {
-            "press_release_id": msg_id,
-            "company_name": meta.get("company_name") or "",
-            "category": "unknown",
-            "release_date": day,
-            "release_ts_utc": meta.get("release_ts_utc"),   # ← precise time
-            "ingested_at": _now_utc_iso(),
-            "title": title,
-            "full_text": text,
-            "source": SOURCE,
-            "source_url": page.url,
-            "parser_version": PARSER_VER,
-            "schema_version": SCHEMA_VER,  # optionally bump to 2
-        }
-        write_silver_batch(batch_writer, row)
+            row = {
+                "press_release_id": msg_id,
+                "company_name": meta.get("company_name") or "",
+                "category": "unknown",
+                "release_date": day,
+                "release_ts_utc": meta.get("release_ts_utc"),   # ← precise time
+                "ingested_at": _now_utc_iso(),
+                "title": title,
+                "full_text": text,
+                "source": SOURCE,
+                "source_url": page.url,
+                "parser_version": PARSER_VER,
+                "schema_version": SCHEMA_VER,  # optionally bump to 2
+            }
+            write_silver_batch(batch_writer, row)
 
-        written += 1
-        time.sleep(SLEEP_BETWEEN)
+            written += 1
+            time.sleep(SLEEP_BETWEEN)
 
         logging.info("[done] source=%s items_written=%d", SOURCE, written)
         return written
